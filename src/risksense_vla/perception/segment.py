@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from hapvla.types import Detection
+from risksense_vla.types import Detection
 
 
 @dataclass(slots=True)

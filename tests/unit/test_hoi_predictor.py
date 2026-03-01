@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import torch
 
-from hapvla.hoi import ProtoHOIPredictor
-from hapvla.types import Detection, MemoryState
+from risksense_vla.hoi import ProtoHOIPredictor
+from risksense_vla.types import Detection, MemoryState
 
 
 def test_protohoi_outputs_current_and_future() -> None:

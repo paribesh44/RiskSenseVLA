@@ -10,9 +10,9 @@ import cv2
 import numpy as np
 import torch
 
-from hapvla.perception.embed import CLIPEmbedder, FallbackEmbedder
-from hapvla.perception.segment import BoxMaskSegmenter
-from hapvla.types import Detection
+from risksense_vla.perception.embed import CLIPEmbedder, FallbackEmbedder
+from risksense_vla.perception.segment import BoxMaskSegmenter
+from risksense_vla.types import Detection
 
 
 class Detector(Protocol):

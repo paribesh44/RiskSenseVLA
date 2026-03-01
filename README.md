@@ -1,6 +1,6 @@
-# HAPVLA
+# RiskSense-VLA
 
-HAPVLA is a modular, edge-deployable Vision-Language-Action system for:
+RiskSense-VLA is a modular, edge-deployable Vision-Language-Action system for:
 
 - open-vocabulary perception
 - hazard-aware temporal memory

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end real-time inference loop for HAPVLA."""
+"""End-to-end real-time inference loop for RiskSense-VLA."""
 
 from __future__ import annotations
 
@@ -9,16 +9,16 @@ import time
 import cv2
 import torch
 
-from hapvla.attention import SemanticAttentionScheduler
-from hapvla.config import load_config
-from hapvla.hazard import LaCHazardReasoner
-from hapvla.hoi import ProtoHOIPredictor
-from hapvla.io import VideoInput, resolve_source
-from hapvla.memory import HazardAwareMemory
-from hapvla.perception import OpenVocabPerception
-from hapvla.runtime import pick_backend
-from hapvla.types import FrameData
-from hapvla.viz import JsonlRunLogger, render_frame
+from risksense_vla.attention import SemanticAttentionScheduler
+from risksense_vla.config import load_config
+from risksense_vla.hazard import LaCHazardReasoner
+from risksense_vla.hoi import ProtoHOIPredictor
+from risksense_vla.io import VideoInput, resolve_source
+from risksense_vla.memory import HazardAwareMemory
+from risksense_vla.perception import OpenVocabPerception
+from risksense_vla.runtime import pick_backend
+from risksense_vla.types import FrameData
+from risksense_vla.viz import JsonlRunLogger, render_frame
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,7 +35,7 @@ def main() -> None:
     args = parse_args()
     cfg = load_config(args.config, args.backend_config)
     backend = pick_backend(cfg.get("runtime", {}).get("backend", "mps"))
-    print(f"[HAPVLA] backend={backend.name} device={backend.device}")
+    print(f"[RiskSense-VLA] backend={backend.name} device={backend.device}")
 
     src = args.source if args.source is not None else str(cfg.get("io", {}).get("source", 0))
     width = int(cfg.get("io", {}).get("width", 1280))
@@ -119,7 +119,7 @@ def main() -> None:
             if writer is not None:
                 writer.write(annotated)
             if not args.no_display:
-                cv2.imshow("HAPVLA Realtime", annotated)
+                cv2.imshow("RiskSense-VLA Realtime", annotated)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
             if args.max_frames and captured.frame_index + 1 >= args.max_frames:

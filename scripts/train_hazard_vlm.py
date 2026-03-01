@@ -11,8 +11,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from hapvla.config import load_config
-from hapvla.runtime import pick_backend
+from risksense_vla.config import load_config
+from risksense_vla.runtime import pick_backend
 
 
 SEVERITY_TO_ID = {"low": 0, "medium": 1, "high": 2}

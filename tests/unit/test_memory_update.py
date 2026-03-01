@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import torch
 
-from hapvla.memory import HazardAwareMemory
-from hapvla.types import Detection, HazardScore
+from risksense_vla.memory import HazardAwareMemory
+from risksense_vla.types import Detection, HazardScore
 
 
 def test_hazard_weighted_persistence() -> None:

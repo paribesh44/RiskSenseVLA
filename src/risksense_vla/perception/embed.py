@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hapvla.types import Detection
+from risksense_vla.types import Detection
 
 
 def _crop(frame_bgr: np.ndarray, bbox: tuple[int, int, int, int]) -> np.ndarray:

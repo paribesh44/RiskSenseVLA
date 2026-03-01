@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from hapvla.perception import BoxMaskSegmenter, CLIPEmbedder, FallbackEmbedder, OpenVocabPerception
-from hapvla.perception.open_vocab import Detector
-from hapvla.types import Detection
+from risksense_vla.perception import BoxMaskSegmenter, CLIPEmbedder, FallbackEmbedder, OpenVocabPerception
+from risksense_vla.perception.open_vocab import Detector
+from risksense_vla.types import Detection
 
 
 class BrokenDetector(Detector):

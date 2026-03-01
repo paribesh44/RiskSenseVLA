@@ -1,8 +1,8 @@
-# HAPVLA Architecture
+# RiskSense-VLA Architecture
 
 ## Project Scope
 
-HAPVLA is a modular Vision-Language-Action stack designed for laptop-class real-time inference (Apple M-series default, CUDA/TensorRT optional) and reproducible research workflows.
+RiskSense-VLA is a modular Vision-Language-Action stack designed for laptop-class real-time inference (Apple M-series default, CUDA/TensorRT optional) and reproducible research workflows.
 
 ## What Is Novel Beyond Model Stacking
 
@@ -127,7 +127,7 @@ flowchart LR
 
 ## Typed Module Contracts
 
-Core inter-module payloads are defined in `src/hapvla/types/schema.py`:
+Core inter-module payloads are defined in `src/risksense_vla/types/schema.py`:
 
 - `FrameData`
 - `Detection`
