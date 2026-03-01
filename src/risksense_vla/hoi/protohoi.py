@@ -8,7 +8,7 @@ from typing import Dict
 
 import torch
 
-from hapvla.types import Detection, HOITriplet, MemoryState
+from risksense_vla.types import Detection, HOITriplet, MemoryState
 
 
 def _text_proto(text: str, dim: int = 256) -> torch.Tensor:

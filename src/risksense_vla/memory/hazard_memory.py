@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import torch
 
-from hapvla.types import Detection, HazardScore, MemoryObjectState, MemoryState
+from risksense_vla.types import Detection, HazardScore, MemoryObjectState, MemoryState
 
 
 @dataclass(slots=True)

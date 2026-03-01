@@ -10,7 +10,7 @@ from typing import Optional, TextIO
 import cv2
 import numpy as np
 
-from hapvla.types import FrameData, HazardScore, dataclass_to_json_ready
+from risksense_vla.types import FrameData, HazardScore, dataclass_to_json_ready
 
 
 def _hazard_color(severity: str) -> tuple[int, int, int]:

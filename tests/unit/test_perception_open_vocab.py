@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from hapvla.perception import OpenVocabPerception
+from risksense_vla.perception import OpenVocabPerception
 
 
 def _red_blob_frame(height: int = 240, width: int = 320) -> np.ndarray:

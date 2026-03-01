@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from hapvla.attention import SemanticAttentionScheduler
-from hapvla.hazard import LaCHazardReasoner
-from hapvla.hoi import ProtoHOIPredictor
-from hapvla.memory import HazardAwareMemory
-from hapvla.perception import OpenVocabPerception
+from risksense_vla.attention import SemanticAttentionScheduler
+from risksense_vla.hazard import LaCHazardReasoner
+from risksense_vla.hoi import ProtoHOIPredictor
+from risksense_vla.memory import HazardAwareMemory
+from risksense_vla.perception import OpenVocabPerception
 
 
 def test_smoke_one_frame_pipeline() -> None:

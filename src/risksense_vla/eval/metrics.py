@@ -1,4 +1,4 @@
-"""Evaluation metrics and diagnostic visualizations for HAPVLA."""
+"""Evaluation metrics and diagnostic visualizations for RiskSense-VLA."""
 
 from __future__ import annotations
 

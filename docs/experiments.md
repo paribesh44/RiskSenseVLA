@@ -1,4 +1,4 @@
-# HAPVLA Experiments
+# RiskSense-VLA Experiments
 
 ## Reproducibility
 

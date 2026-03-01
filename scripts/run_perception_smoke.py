@@ -10,10 +10,10 @@ from pathlib import Path
 
 import cv2
 
-from hapvla.config import load_config
-from hapvla.io import VideoInput, resolve_source
-from hapvla.perception import OpenVocabPerception
-from hapvla.runtime import pick_backend
+from risksense_vla.config import load_config
+from risksense_vla.io import VideoInput, resolve_source
+from risksense_vla.perception import OpenVocabPerception
+from risksense_vla.runtime import pick_backend
 
 
 def parse_args() -> argparse.Namespace:
@@ -95,7 +95,7 @@ def main() -> None:
 
                 if not args.no_display:
                     vis = _render(captured.bgr, out.detections, dt_ms)
-                    cv2.imshow("HAPVLA Perception Smoke", vis)
+                    cv2.imshow("RiskSense-VLA Perception Smoke", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
 

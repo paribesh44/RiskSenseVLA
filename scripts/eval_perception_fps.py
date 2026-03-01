@@ -10,10 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-from hapvla.config import load_config
-from hapvla.io import VideoInput, resolve_source
-from hapvla.perception import OpenVocabPerception
-from hapvla.runtime import pick_backend
+from risksense_vla.config import load_config
+from risksense_vla.io import VideoInput, resolve_source
+from risksense_vla.perception import OpenVocabPerception
+from risksense_vla.runtime import pick_backend
 
 
 def parse_args() -> argparse.Namespace:

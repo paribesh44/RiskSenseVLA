@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from hapvla.types import HOITriplet, HazardScore
+from risksense_vla.types import HOITriplet, HazardScore
 
 
 @dataclass(slots=True)

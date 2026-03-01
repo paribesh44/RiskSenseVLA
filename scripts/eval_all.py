@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from hapvla.eval import aggregate_sequences, evaluate_sequence, plot_failure_heatmap, plot_hoi_trajectory
+from risksense_vla.eval import aggregate_sequences, evaluate_sequence, plot_failure_heatmap, plot_hoi_trajectory
 
 
 def parse_args() -> argparse.Namespace:
