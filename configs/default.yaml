@@ -20,6 +20,7 @@ models:
 
 perception:
   detector_backend: grounding_dino
+  allow_mock_backend: false
   grounding_dino_model_id: IDEA-Research/grounding-dino-base
   yoloe_model_path: yoloe-26s.pt
   detector_confidence_threshold: 0.35
@@ -51,6 +52,19 @@ latency_targets_ms:
 hazard:
   future_horizon_seconds: 3
   alert_threshold: 0.65
+  backend_type: phi4_mm
+  max_tokens: 64
+  temperature: 0.2
+  quantized: false
+  lightweight_mode: false
+  explain: true
+  debug_prompt: false
+  reasoner_model_type: phi4_multimodal
+  reasoner_checkpoint: artifacts/hazard_reasoner.pt
+  reasoner_fallback_mode: blend
+  phi4_model_id: microsoft/Phi-4-multimodal-instruct
+  phi4_precision: int8
+  phi4_estimated_vram_gb: 10.0
 
 logging:
   jsonl_path: outputs/realtime_log.jsonl
