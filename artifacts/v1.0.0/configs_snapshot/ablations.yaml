@@ -1,0 +1,41 @@
+# Ablation study configuration for RiskSense-VLA.
+#
+# Each entry under `ablations:` defines one experiment. Fields not specified
+# inherit from the baseline defaults (hazard_aware, predictive, semantic, fp32).
+# To add a new ablation, simply append an entry here -- no Python changes needed.
+
+seed: 42
+warmup: 50
+iterations: 200
+
+ablations:
+  baseline:
+    memory_mode: hazard_aware
+    hoi_mode: predictive
+    attention_mode: semantic
+    quant_mode: fp32
+    description: "Full system baseline (hazard-aware SSM + predictive HOI + semantic attention + FP32)"
+
+  naive_memory:
+    memory_mode: naive
+    description: "Replace hazard-aware SSM memory with naive uniform-decay memory"
+
+  frame_only_hoi:
+    hoi_mode: frame_only
+    description: "Replace predictive HOI with frame-by-frame ProtoHOI (no future heads)"
+
+  uniform_attention:
+    attention_mode: uniform
+    description: "Replace semantic attention scheduling with uniform allocation"
+
+  int8_qat:
+    quant_mode: int8
+    description: "INT8 quantization via QAT convert"
+
+  int4_ptq:
+    quant_mode: int4_ptq
+    description: "INT4-style post-training quantization (dynamic quant on Linear layers)"
+
+  int8_masked:
+    quant_mode: int8_masked
+    description: "INT8 QAT combined with magnitude-based weight pruning"

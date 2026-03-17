@@ -1,0 +1,10 @@
+name: risksense-vla
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.13.3
+  - pip
+  - pip:
+      - -r requirements_lock.txt
