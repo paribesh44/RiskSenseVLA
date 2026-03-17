@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import json
 from pathlib import Path
 
 from risksense_vla.eval import aggregate_sequences, evaluate_sequence, plot_failure_heatmap, plot_hoi_trajectory
+
+_LOG = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +33,7 @@ def load_records(path: str) -> list[dict]:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     args = parse_args()
     recs = load_records(args.log_jsonl)
     seq = evaluate_sequence(recs)
@@ -52,7 +56,7 @@ def main() -> None:
     plot_dir = Path(args.plots_dir)
     plot_failure_heatmap(recs, str(plot_dir / "hazard_attention_heatmap.png"))
     plot_hoi_trajectory(recs, str(plot_dir / "hoi_trajectory.png"))
-    print(json.dumps(report, indent=2))
+    _LOG.info("%s", json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":
