@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import json
 import time
 from pathlib import Path
@@ -14,6 +15,8 @@ from risksense_vla.config import load_config
 from risksense_vla.io import VideoInput, resolve_source
 from risksense_vla.perception import OpenVocabPerception
 from risksense_vla.runtime import pick_backend
+
+_LOG = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,10 +47,10 @@ def _benchmark_on_frames(
     total_detections = 0
     for frame in frames:
         t0 = time.perf_counter()
-        out = perception.infer(frame, labels=labels)
+        detections = perception.infer(frame, labels=labels)
         dt_ms = (time.perf_counter() - t0) * 1000.0
         latencies_ms.append(dt_ms)
-        total_detections += len(out.detections)
+        total_detections += len(detections)
     avg_latency = float(sum(latencies_ms) / len(latencies_ms)) if latencies_ms else 0.0
     fps = float(1000.0 / avg_latency) if avg_latency > 0 else 0.0
     return {
@@ -61,6 +64,7 @@ def _benchmark_on_frames(
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     args = parse_args()
     cfg = load_config(args.config, args.backend_config)
     backend = pick_backend(cfg.get("runtime", {}).get("backend", "mps"))
@@ -110,7 +114,7 @@ def main() -> None:
     out = Path(args.output_json)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps(report, indent=2))
+    _LOG.info("%s", json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":
