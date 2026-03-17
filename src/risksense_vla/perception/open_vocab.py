@@ -1,4 +1,46 @@
-"""Open-vocabulary detection pipeline with pluggable detector backends."""
+"""Phase 1 internal architecture for open-vocabulary perception.
+
+SECTION 1 - Architectural Role
+This module implements open-vocabulary detection and box-conditioned segmentation for
+the Hazard-Aware Predictive VLA perception stage, then produces CLIP-aligned object
+embeddings for downstream reasoning. Its outputs are consumed by hazard-aware memory
+and predictive HOI modules as frame-level perception primitives; temporal aggregation,
+memory update policy, and HOI forecasting logic are explicitly out of scope here.
+
+SECTION 2 - Detection Pipeline
+Per-frame processing follows:
+frame -> open-vocabulary detector -> bounding boxes -> segmentation masks ->
+region crops -> CLIP encoder -> embedding vectors.
+For detection i:
+e_i = CLIP(f(mask_i \\odot frame))
+where mask_i isolates the object region, \\odot is element-wise masking, f(.) denotes
+deterministic preprocessing (crop/resize/normalize/color conversion), and CLIP(.) is a
+frozen image encoder (or deterministic fallback encoder if CLIP runtime is unavailable).
+
+SECTION 3 - Open-Vocabulary Handling
+Dynamic label prompts are passed through infer(..., labels=...) and forwarded to
+detector backends as open_vocab_labels, enabling zero-shot detection against runtime
+text classes rather than a fixed closed-set taxonomy. If no labels are provided, or if
+provided labels collapse to empty tokens after sanitization, backend default labels are
+used to preserve deterministic API behavior.
+
+SECTION 4 - Output Contract
+The module returns a canonical list[PerceptionDetection]. Each item includes:
+- bounding_box: bbox_xyxy as tuple[int, int, int, int] in pixel coordinates.
+- mask: per-object spatial region estimate for the same object.
+- clip_embedding: fixed-width float32 vector.
+- confidence: float in [0, 1].
+Dimension guarantee: clip_embedding width is d = 256 in the default Phase 1
+configuration (and remains constant within a run if reconfigured).
+Additional guarantees: embeddings are L2-normalized and each detection carries its own
+mask + embedding (no downstream tensor indexing contract).
+
+SECTION 5 - Performance Assumptions
+Designed for >=20 FPS on a laptop-class GPU under typical scene complexity.
+A CPU fallback path exists for detector/embedder backends but may reduce throughput.
+No temporal state is retained for scene dynamics in this module; each infer call is
+frame-local computation.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +54,7 @@ import torch
 
 from risksense_vla.perception.embed import CLIPEmbedder, FallbackEmbedder
 from risksense_vla.perception.segment import BoxMaskSegmenter
-from risksense_vla.types import Detection
+from risksense_vla.types import Detection, PerceptionDetection
 
 
 class Detector(Protocol):
@@ -109,8 +151,8 @@ class GroundingDINOAdapter:
     default_labels: list[str] = field(default_factory=lambda: ["person", "knife", "stove", "vehicle"])
     device: str = "cpu"
     local_files_only: bool = False
-    _model: Any = None
-    _processor: Any = None
+    _model: Any = None  # HF AutoModelForZeroShotObjectDetection type
+    _processor: Any = None  # HF AutoProcessor type
     _init_failed: bool = False
     _init_error: str = ""
 
@@ -210,7 +252,7 @@ class YOLOE26Adapter:
     max_detections: int = 12
     default_labels: list[str] = field(default_factory=lambda: ["person", "knife", "stove", "vehicle"])
     device: str = "cpu"
-    _model: Any = None
+    _model: Any = None  # Ultralytics YOLO type
     _last_prompt: tuple[str, ...] = field(default_factory=tuple)
     _init_failed: bool = False
     _init_error: str = ""
@@ -287,19 +329,13 @@ class YOLOE26Adapter:
 
 
 @dataclass(slots=True)
-class PerceptionOutput:
-    detections: list[Detection]
-    masks: torch.Tensor
-    embeddings: torch.Tensor
-
-
-@dataclass(slots=True)
 class OpenVocabPerception:
     detector: Detector
     segmenter: BoxMaskSegmenter
     embedder: Embedder
     default_labels: list[str] = field(default_factory=lambda: ["person", "knife", "stove", "vehicle"])
     max_detections: int = 12
+    allow_mock_backend: bool = False
     fallback_detector: Detector = field(default_factory=MockOpenVocabDetector)
 
     @classmethod
@@ -310,11 +346,17 @@ class OpenVocabPerception:
     def from_config(cls, cfg: dict[str, Any], device: str = "cpu") -> "OpenVocabPerception":
         p_cfg = cfg.get("perception", {}) if isinstance(cfg, dict) else {}
         m_cfg = cfg.get("models", {}) if isinstance(cfg, dict) else {}
-        detector_name = str(p_cfg.get("detector_backend", m_cfg.get("detector", "mock"))).lower()
-        embedder_name = str(p_cfg.get("embedder_backend", m_cfg.get("embedder", "fallback"))).lower()
+        detector_name = str(p_cfg.get("detector_backend", m_cfg.get("detector", "grounding_dino"))).lower()
+        embedder_name = str(p_cfg.get("embedder_backend", m_cfg.get("embedder", "clip_or_fallback"))).lower()
+        allow_mock_backend = bool(p_cfg.get("allow_mock_backend", False))
         max_detections = int(p_cfg.get("detector_max_detections", 12))
         labels = p_cfg.get("default_labels", ["person", "knife", "stove", "vehicle"])
         labels = [str(x) for x in labels]
+        if detector_name == "mock" and not allow_mock_backend:
+            raise ValueError(
+                "Mock detector requested but disabled by config. "
+                "Set perception.allow_mock_backend=true to enable it explicitly."
+            )
         if detector_name in {"grounding_dino", "groundingdino"}:
             detector: Detector = GroundingDINOAdapter(
                 model_name=str(p_cfg.get("grounding_dino_model_id", "IDEA-Research/grounding-dino-base")),
@@ -366,14 +408,20 @@ class OpenVocabPerception:
             embedder=embedder,
             default_labels=labels,
             max_detections=max_detections,
+            allow_mock_backend=allow_mock_backend,
             fallback_detector=MockOpenVocabDetector(default_label=labels[0] if labels else "person"),
         )
 
-    def infer(self, frame_bgr: np.ndarray, labels: list[str] | None = None) -> PerceptionOutput:
+    def infer(self, frame_bgr: np.ndarray, labels: list[str] | None = None) -> list[PerceptionDetection]:
         active_labels = labels if labels is not None else self.default_labels
         try:
             detections = self.detector.detect(frame_bgr, open_vocab_labels=active_labels)
-        except Exception:
+        except Exception as exc:
+            if not self.allow_mock_backend:
+                raise RuntimeError(
+                    "Detector inference failed and mock fallback is disabled. "
+                    "Set perception.allow_mock_backend=true to allow explicit mock fallback."
+                ) from exc
             detections = self.fallback_detector.detect(frame_bgr, open_vocab_labels=active_labels)
         detections = sorted(detections, key=lambda d: d.confidence, reverse=True)[: self.max_detections]
         masks = self.segmenter.segment(frame_bgr, detections)
@@ -383,6 +431,16 @@ class OpenVocabPerception:
             detections = detections[:n]
             masks = masks[:n]
             embeddings = embeddings[:n]
+        out: list[PerceptionDetection] = []
         for idx, det in enumerate(detections):
-            det.embedding_idx = idx
-        return PerceptionOutput(detections=detections, masks=masks, embeddings=embeddings)
+            out.append(
+                PerceptionDetection(
+                    track_id=det.track_id,
+                    label=det.label,
+                    confidence=float(det.confidence),
+                    bbox_xyxy=tuple(det.bbox_xyxy),
+                    mask=masks[idx].detach().clone(),
+                    clip_embedding=embeddings[idx].detach().clone(),
+                )
+            )
+        return out

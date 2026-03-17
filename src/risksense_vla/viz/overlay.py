@@ -77,13 +77,42 @@ class JsonlRunLogger:
         p.parent.mkdir(parents=True, exist_ok=True)
         self._fh = p.open("a", encoding="utf-8")
 
-    def write(self, frame_data: FrameData, alerts: list[str], attention: dict[str, float]) -> None:
+    def write(
+        self,
+        frame_data: FrameData,
+        alerts: list[str],
+        attention: dict[str, float],
+        hazard_map: dict[str, float] | None = None,
+        hazard_map_legacy: dict[str, float] | None = None,
+        hazard_explanations: dict[str, str] | None = None,
+        hazard_prompt_debug: dict[str, str] | None = None,
+        hazard_inference_ms: float | None = None,
+        hazard_backend: str | None = None,
+        hazard_backend_metadata: dict[str, object] | None = None,
+    ) -> None:
         record = {
             "frame_id": frame_data.frame_index,
             "timestamp": frame_data.timestamp,
-            "detections": dataclass_to_json_ready(frame_data.detections),
+            "detections": [
+                {
+                    "track_id": det.track_id,
+                    "label": det.label,
+                    "confidence": float(det.confidence),
+                    "bbox_xyxy": list(det.bbox_xyxy),
+                    "mask_shape": list(det.mask.shape),
+                    "clip_embedding_dim": int(det.clip_embedding.shape[0]),
+                }
+                for det in frame_data.detections
+            ],
             "hois": dataclass_to_json_ready(frame_data.hois),
             "hazards": dataclass_to_json_ready(frame_data.hazards),
+            "hazard_map": hazard_map or {},
+            "hazard_map_legacy": hazard_map_legacy or {},
+            "hazard_explanations": hazard_explanations or {},
+            "hazard_prompt_debug": hazard_prompt_debug or {},
+            "hazard_inference_ms": float(hazard_inference_ms) if hazard_inference_ms is not None else 0.0,
+            "hazard_backend": hazard_backend or "unknown",
+            "hazard_backend_metadata": hazard_backend_metadata or {},
             "memory_stats": (
                 {
                     "num_objects": len(frame_data.memory.objects) if frame_data.memory else 0,

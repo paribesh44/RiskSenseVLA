@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "RiskSense-VLA"
-version = "0.1.0"
+version = "1.0.0"
 description = "Hazard-Aware Predictive Vision-Language-Action system"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -52,3 +52,6 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["E402"]
