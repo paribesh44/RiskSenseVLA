@@ -72,8 +72,8 @@ class CLIPEmbedder:
     enabled: bool = True
     allow_fallback: bool = True
     local_files_only: bool = False
-    _model: Any = None
-    _processor: Any = None
+    _model: Any = None  # HF CLIPModel type
+    _processor: Any = None  # HF CLIPProcessor type
     _fallback: FallbackEmbedder | None = None
     _init_failed: bool = False
     _init_error: str = ""

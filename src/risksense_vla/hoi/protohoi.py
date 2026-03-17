@@ -1,4 +1,4 @@
-"""ProtoHOI-style zero-shot and predictive HOI reasoning."""
+"""Legacy ProtoHOI predictor retained for compatibility tests only."""
 
 from __future__ import annotations
 
@@ -8,10 +8,11 @@ from typing import Dict
 
 import torch
 
-from risksense_vla.types import Detection, HOITriplet, MemoryState
+from risksense_vla.types import HOITriplet, MemoryState, PerceptionDetection
 
 
 def _text_proto(text: str, dim: int = 256) -> torch.Tensor:
+    """Build a deterministic L2-normalized embedding from text via SHA256 hash seed."""
     seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:8], 16)
     g = torch.Generator()
     g.manual_seed(seed)
@@ -34,6 +35,7 @@ class ProtoHOIPredictor:
         self.action_prototypes = {a: _text_proto(a, self.emb_dim) for a in self.actions}
 
     def _best_action(self, emb: torch.Tensor) -> tuple[str, float]:
+        """Return the action prototype with highest cosine similarity and its confidence."""
         scores = {}
         emb = emb / (torch.linalg.norm(emb) + 1e-8)
         for action, proto in self.action_prototypes.items():
@@ -45,18 +47,22 @@ class ProtoHOIPredictor:
     def predict(
         self,
         timestamp: float,
-        detections: list[Detection],
-        embeddings: torch.Tensor,
+        detections: list[PerceptionDetection],
         memory: MemoryState,
     ) -> list[HOITriplet]:
-        if not detections or embeddings.numel() == 0:
+        if not detections:
             return []
         triplets: list[HOITriplet] = []
         subject = "human"
         mem_bias = memory.hoi_embedding[0, : self.emb_dim]
         for det in detections:
-            idx = max(0, det.embedding_idx)
-            obj_emb = embeddings[idx]
+            if det.clip_embedding.numel() > 0:
+                obj_emb = torch.zeros((self.emb_dim,), dtype=torch.float32)
+                raw = det.clip_embedding.to(torch.float32).flatten()
+                copy_n = min(self.emb_dim, raw.shape[0])
+                obj_emb[:copy_n] = raw[:copy_n]
+            else:
+                obj_emb = _text_proto(f"{det.label}:{det.track_id}", self.emb_dim)
             action, conf = self._best_action(0.7 * obj_emb + 0.3 * mem_bias)
             triplets.append(
                 HOITriplet(

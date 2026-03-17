@@ -5,6 +5,7 @@ from .schema import (
     HazardScore,
     MemoryObjectState,
     MemoryState,
+    PerceptionDetection,
     dataclass_to_json_ready,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "HazardScore",
     "MemoryObjectState",
     "MemoryState",
+    "PerceptionDetection",
     "dataclass_to_json_ready",
 ]

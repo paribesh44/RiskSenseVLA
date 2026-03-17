@@ -1,5 +1,5 @@
 from .embed import CLIPEmbedder, FallbackEmbedder
-from .open_vocab import GroundingDINOAdapter, OpenVocabPerception, PerceptionOutput, YOLOE26Adapter
+from .open_vocab import GroundingDINOAdapter, OpenVocabPerception, YOLOE26Adapter
 from .segment import BoxMaskSegmenter
 
 __all__ = [
@@ -9,5 +9,4 @@ __all__ = [
     "GroundingDINOAdapter",
     "YOLOE26Adapter",
     "OpenVocabPerception",
-    "PerceptionOutput",
 ]

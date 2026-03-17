@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from risksense_vla.types import Detection, HazardScore
+from risksense_vla.types import HazardScore, PerceptionDetection
 
 
 @dataclass(slots=True)
@@ -19,7 +19,7 @@ class SemanticAttentionScheduler:
             return 0.0
         return float(sum(scores) / len(scores))
 
-    def allocation(self, detections: list[Detection], hazards: list[HazardScore]) -> dict[str, float]:
+    def allocation(self, detections: list[PerceptionDetection], hazards: list[HazardScore]) -> dict[str, float]:
         out: dict[str, float] = {}
         for det in detections:
             risk = self._risk_for_label(det.label, hazards)
