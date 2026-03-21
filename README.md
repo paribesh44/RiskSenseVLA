@@ -18,6 +18,64 @@ python scripts/run_realtime.py --config configs/default.yaml
 
 If you already have a project venv (for example `.venv311`), activate that instead.
 
+## Docker (CPU, headless)
+
+If local Python dependencies are unstable, run the project in Docker:
+
+```bash
+docker build -t risksense-vla:cpu .
+docker run --rm -it \
+  -v "$PWD/outputs:/app/outputs" \
+  risksense-vla:cpu
+```
+
+The default container command runs:
+
+```bash
+python scripts/run_realtime.py --config configs/popup_demo.yaml --max-frames 30 --no-display
+```
+
+To run a different command:
+
+```bash
+docker run --rm -it \
+  -v "$PWD/outputs:/app/outputs" \
+  risksense-vla:cpu \
+  python scripts/run_e2e_verify.py --config configs/default.yaml --fast
+```
+
+## Docker Compose
+
+You can also run with Compose:
+
+```bash
+docker compose up --build
+```
+
+This uses `docker-compose.yml` and runs the same popup demo command in headless mode,
+while mounting:
+
+- `./outputs` -> `/app/outputs`
+- `~/.cache/huggingface` -> `/root/.cache/huggingface`
+
+Run a one-off command with Compose:
+
+```bash
+docker compose run --rm risksense-vla python scripts/run_e2e_verify.py --config configs/default.yaml --fast
+```
+
+Verify the full stack on a synthetic frame (downloads real perception + VLM weights on first run; can take several minutes):
+
+```bash
+python scripts/run_e2e_verify.py --config configs/default.yaml
+```
+
+Quick wiring check without large downloads:
+
+```bash
+python scripts/run_e2e_verify.py --config configs/default.yaml --fast
+```
+
 ## Perception Backends
 
 The perception tier supports pluggable open-vocabulary detector backends configured in `configs/*.yaml`:
@@ -32,7 +90,10 @@ The embedding backend is also configurable:
 - `clip_or_fallback`
 - `fallback`
 
-Default behavior is strict Phase-1 path: `grounding_dino` + `clip_or_fallback`.
+Default behavior is strict Phase-1 path: `grounding_dino` + `clip_or_fallback`, with a real
+compact VLM for hazard scoring (`hazard.backend_type: smolvlm`, see `configs/default.yaml`).
+Grounding DINO automatically runs on **CPU** when the runtime device is **MPS** (Apple Silicon),
+because that checkpoint is unreliable on MPS; override with `perception.detector_device` if needed.
 Mock detector fallback is disabled unless `perception.allow_mock_backend=true`.
 
 ### Canonical Perception Contract
@@ -64,6 +125,20 @@ Outputs:
 
 - smoke log: `outputs/perception_smoke.jsonl`
 - FPS report: `outputs/perception_fps.json`
+
+If Grounding DINO seems stuck on first run (no frames emitted for a long time), it is
+usually waiting on Hugging Face weight download/lock resolution. Set `HF_TOKEN`, stop
+the run, remove `*.incomplete` files under
+`~/.cache/huggingface/hub/models--IDEA-Research--grounding-dino-base/blobs/`, and retry.
+As an alternative, run with YOLOE backend config:
+
+```bash
+python scripts/run_perception_smoke.py \
+  --config configs/default.yaml \
+  --backend-config configs/local_webcam_yoloe.yaml \
+  --source 0 \
+  --max-frames 30
+```
 
 ## Hazard Memory (Linear SSM)
 
@@ -137,7 +212,8 @@ Benchmark output:
 Hazard reasoning is implemented as a prompt-driven module in
 `src/risksense_vla/hazard/` with swappable backends:
 
-- `Phi4MultimodalBackend`: default Phase-4 backend (`phi4_mm`).
+- `SmolVlmBackend`: default portable real VLM path (`smolvlm`), using `hazard.vlm_model_id` (e.g. SmolVLM-500M).
+- `Phi4MultimodalBackend`: Phi-4 multimodal via `AutoModelForCausalLM` (`phi4_mm`; needs CUDA-class VRAM and `peft`/`backoff`).
 - `TinyLocalVLMBackend`: explicit lightweight path (`lightweight_mode=true` only).
 - `StubBackend`: deterministic lightweight CI path (`lightweight_mode=true` only).
 
@@ -147,11 +223,12 @@ The main API is exposed by `DistilledHazardReasoner.predict_hazard(...)` (backwa
 from risksense_vla.hazard import DistilledHazardReasoner
 
 reasoner = DistilledHazardReasoner(
-    backend_type="phi4_mm",
+    backend_type="smolvlm",
     checkpoint_path="artifacts/hazard_reasoner.pt",
     max_tokens=64,
     temperature=0.2,
     lightweight_mode=False,
+    vlm_model_id="HuggingFaceTB/SmolVLM-500M-Instruct",
     phi4_model_id="microsoft/Phi-4-multimodal-instruct",
     phi4_precision="int8",
     phi4_estimated_vram_gb=10.0,
@@ -178,11 +255,18 @@ Returned outputs include:
 
 Configured under `hazard:` in `configs/default.yaml`:
 
-- `backend_type`: `phi4_mm` (default), or `tiny`/`stub` with `lightweight_mode=true`
+- `backend_type`: `smolvlm` (default), `phi4_mm` (Phi-4 on CUDA), or `tiny`/`stub` with `lightweight_mode=true`
+- `vlm_model_id`: Hugging Face repo for `smolvlm` (default `HuggingFaceTB/SmolVLM-500M-Instruct`)
 - `max_tokens`: generation cap (default `64`)
 - `temperature`: sampling temperature (default `0.2`)
 - `lightweight_mode`: enables tiny/stub backends
-- `phi4_model_id`, `phi4_precision`, `phi4_estimated_vram_gb`
+- `phi4_model_id`, `phi4_precision`, `phi4_estimated_vram_gb` (used for `phi4_mm`)
+
+Phi-4 overlay example:
+
+```bash
+python scripts/run_realtime.py --config configs/default.yaml --backend-config configs/phi4_multimodal.yaml
+```
 - `explain`: include backend explanation text
 - `debug_prompt`: include prompt text in logs for debugging
 - `reasoner_checkpoint`, `reasoner_fallback_mode`, `alert_threshold`
@@ -237,12 +321,15 @@ hoi = PredictiveHOIModule(
     future_horizon_seconds=int(cfg.get("hazard", {}).get("future_horizon_seconds", 3)),
     emb_dim=int(cfg.get("perception", {}).get("embedding_dim", 256)),
 )
+hz = cfg.get("hazard", {})
 reasoner = DistilledHazardReasoner(
-    alert_threshold=float(cfg.get("hazard", {}).get("alert_threshold", 0.65)),
-    checkpoint_path=str(cfg.get("hazard", {}).get("reasoner_checkpoint", "artifacts/hazard_reasoner.pt")),
+    alert_threshold=float(hz.get("alert_threshold", 0.65)),
+    checkpoint_path=str(hz.get("reasoner_checkpoint", "artifacts/hazard_reasoner.pt")),
     emb_dim=int(cfg.get("perception", {}).get("embedding_dim", 256)),
-    backend_type=str(cfg.get("hazard", {}).get("backend_type", "tiny")),
-    lightweight_mode=True,  # use tiny/stub for quick runs
+    backend_type=str(hz.get("backend_type", "smolvlm")),
+    lightweight_mode=bool(hz.get("lightweight_mode", False)),
+    vlm_model_id=str(hz.get("vlm_model_id", "HuggingFaceTB/SmolVLM-500M-Instruct")),
+    phi4_model_id=str(hz.get("phi4_model_id", "microsoft/Phi-4-multimodal-instruct")),
 )
 attention = SemanticAttentionScheduler(
     threshold=float(cfg.get("attention", {}).get("semantic_attention_threshold", 0.6)),

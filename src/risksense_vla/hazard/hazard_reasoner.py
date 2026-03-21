@@ -15,7 +15,15 @@ import torch
 
 from risksense_vla.types import HOITriplet, HazardScore, MemoryObjectState, MemoryState
 
-from .backends import BaseVLMBackend, HazardConfig, Phi4MultimodalBackend, StubBackend, TinyLocalVLMBackend, VLMOutput
+from .backends import (
+    BaseVLMBackend,
+    HazardConfig,
+    Phi4MultimodalBackend,
+    SmolVlmBackend,
+    StubBackend,
+    TinyLocalVLMBackend,
+    VLMOutput,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -375,6 +383,7 @@ class DistilledHazardReasoner(HazardReasoner):
         phi4_model_id: str = "microsoft/Phi-4-multimodal-instruct",
         phi4_precision: str = "int8",
         phi4_estimated_vram_gb: float = 10.0,
+        vlm_model_id: str = "HuggingFaceTB/SmolVLM-500M-Instruct",
         explain: bool = True,
         debug_prompt: bool = False,
         backend: BaseVLMBackend | None = None,
@@ -394,6 +403,7 @@ class DistilledHazardReasoner(HazardReasoner):
             phi4_model_id=str(phi4_model_id),
             phi4_precision=str(phi4_precision),
             phi4_estimated_vram_gb=float(phi4_estimated_vram_gb),
+            vlm_model_id=str(vlm_model_id),
         )
         backend_obj = backend
         if backend_obj is None:
@@ -413,10 +423,13 @@ class DistilledHazardReasoner(HazardReasoner):
             elif btype in {"phi4", "phi4_mm", "phi-4", "phi4-multimodal"}:
                 backend_obj = Phi4MultimodalBackend(config=cfg)
                 cfg.backend_type = "phi4_mm"
+            elif btype in {"smolvlm", "smol_vlm", "hf_smolvlm"}:
+                backend_obj = SmolVlmBackend(config=cfg)
+                cfg.backend_type = "smolvlm"
             else:
                 raise ValueError(
                     f"Unsupported hazard backend_type '{cfg.backend_type}'. "
-                    "Use phi4_mm for default Phase-4 path or tiny/stub with lightweight_mode=True."
+                    "Use smolvlm or phi4_mm for multimodal VLMs, or tiny/stub with lightweight_mode=True."
                 )
         super().__init__(backend=backend_obj, config=cfg)
 

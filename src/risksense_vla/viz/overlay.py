@@ -59,6 +59,42 @@ def render_frame(frame_bgr: np.ndarray, frame_data: FrameData, alerts: list[str]
         cv2.putText(out, alert, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2, cv2.LINE_AA)
         y += 20
 
+    # Compact top-right panel for real-time hazard situational awareness.
+    panel_w, panel_h = 340, 120
+    px1 = max(0, out.shape[1] - panel_w - 10)
+    py1 = 10
+    px2 = min(out.shape[1] - 1, px1 + panel_w)
+    py2 = min(out.shape[0] - 1, py1 + panel_h)
+    panel = out[py1:py2, px1:px2]
+    if panel.size:
+        overlay = panel.copy()
+        cv2.rectangle(overlay, (0, 0), (panel.shape[1] - 1, panel.shape[0] - 1), (32, 32, 32), -1)
+        cv2.addWeighted(overlay, 0.55, panel, 0.45, 0.0, panel)
+
+    top_hazard = max(frame_data.hazards, key=lambda h: h.score, default=None)
+    status_text = "ALERT" if alerts else "MONITOR"
+    status_color = (0, 0, 255) if alerts else (0, 255, 255)
+    lines = [
+        f"status: {status_text}",
+        f"hazards: {len(frame_data.hazards)}",
+        f"alerts: {len(alerts)}",
+        (
+            f"top: {top_hazard.object} {top_hazard.score:.2f} ({top_hazard.severity})"
+            if top_hazard
+            else "top: none"
+        ),
+    ]
+    ty = py1 + 24
+    cv2.putText(out, lines[0], (px1 + 10, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2, cv2.LINE_AA)
+    for line in lines[1:]:
+        ty += 22
+        cv2.putText(out, line, (px1 + 10, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
+
+    if alerts:
+        banner_text = f"ACTIVE ALERT: {alerts[0]}"
+        cv2.rectangle(out, (0, 0), (out.shape[1], 34), (0, 0, 180), -1)
+        cv2.putText(out, banner_text[:120], (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+
     if frame_data.latency_ms:
         perf = " | ".join(f"{k}:{v:.1f}ms" for k, v in frame_data.latency_ms.items())
         cv2.putText(out, perf, (10, out.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1)

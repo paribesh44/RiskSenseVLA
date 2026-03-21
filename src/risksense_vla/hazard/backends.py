@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
+from PIL import Image
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +49,29 @@ def _fit_vec(vec: torch.Tensor | None, dim: int) -> torch.Tensor:
     return out
 
 
+def _bgr_frame_to_pil(image_bgr: np.ndarray | None) -> Image.Image:
+    if image_bgr is None or image_bgr.size == 0:
+        return Image.new("RGB", (224, 224), (16, 16, 16))
+    rgb = image_bgr[:, :, ::-1].copy()
+    return Image.fromarray(rgb)
+
+
+def _move_model_inputs(batch: Any, device: torch.device) -> Any:
+    if hasattr(batch, "to"):
+        return batch.to(device)
+    if isinstance(batch, dict):
+        return {
+            k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()
+        }
+    return batch
+
+
+def _strip_chat_assistant_prefix(decoded: str) -> str:
+    if "Assistant:" in decoded:
+        return decoded.split("Assistant:", 1)[-1].strip()
+    return decoded.strip()
+
+
 @dataclass(slots=True)
 class VLMOutput:
     """Output from a VLM backend: generated text, inference timing, and optional metadata."""
@@ -75,6 +99,7 @@ class HazardConfig:
     phi4_model_id: str = "microsoft/Phi-4-multimodal-instruct"
     phi4_precision: str = "int8"
     phi4_estimated_vram_gb: float = 10.0
+    vlm_model_id: str = "HuggingFaceTB/SmolVLM-500M-Instruct"
 
 
 class BaseVLMBackend(ABC):
@@ -221,32 +246,65 @@ class TinyLocalVLMBackend(BaseVLMBackend):
 
 
 class Phi4MultimodalBackend(BaseVLMBackend):
-    """Primary Phase-4 multimodal backend based on Phi-4 MM."""
+    """Phi-4 multimodal via Hugging Face ``AutoModelForCausalLM`` (remote code; CUDA/MPS/CPU)."""
 
     def __init__(self, config: HazardConfig):
         self.config = config
-        self._pipeline: Any | None = None  # HF pipeline type varies by task
+        self._model: Any | None = None
+        self._processor: Any | None = None
+        self._torch_device: torch.device | None = None
         self._init_attempted = False
 
-    def _ensure_pipeline(self) -> None:
-        if self._pipeline is not None:
+    def _ensure_model(self) -> None:
+        if self._model is not None and self._processor is not None:
             return
         if self._init_attempted:
             raise RuntimeError("Phi-4 multimodal backend initialization previously failed.")
         self._init_attempted = True
         try:
-            from transformers import pipeline
-
-            self._pipeline = pipeline(
-                task="image-text-to-text",
-                model=self.config.phi4_model_id,
-                trust_remote_code=True,
-                device_map="auto",
-            )
-        except Exception as exc:  # pragma: no cover
+            import peft  # noqa: F401
+            import backoff  # noqa: F401
+        except ImportError as exc:
             raise RuntimeError(
-                f"Failed to initialize Phi-4 multimodal backend ({self.config.phi4_model_id}): {exc}"
+                "Phi-4 requires `peft` and `backoff` (listed in project dependencies). "
+                "Reinstall with: pip install -e ."
             ) from exc
+        from transformers import AutoModelForCausalLM, AutoProcessor
+
+        mid = self.config.phi4_model_id
+        if torch.cuda.is_available():
+            self._torch_device = torch.device("cuda")
+            dtype = torch.float16
+            self._processor = AutoProcessor.from_pretrained(mid, trust_remote_code=True)
+            self._model = AutoModelForCausalLM.from_pretrained(
+                mid,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+                device_map="auto",
+                _attn_implementation="eager",
+            )
+        elif torch.backends.mps.is_available():
+            self._torch_device = torch.device("mps")
+            dtype = torch.float16
+            self._processor = AutoProcessor.from_pretrained(mid, trust_remote_code=True)
+            self._model = AutoModelForCausalLM.from_pretrained(
+                mid,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+                _attn_implementation="eager",
+            ).to(self._torch_device)
+        else:
+            self._torch_device = torch.device("cpu")
+            dtype = torch.float32
+            self._processor = AutoProcessor.from_pretrained(mid, trust_remote_code=True)
+            self._model = AutoModelForCausalLM.from_pretrained(
+                mid,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+                device_map="cpu",
+                _attn_implementation="eager",
+            )
+        self._model.eval()
 
     def _augment_prompt(
         self,
@@ -273,17 +331,11 @@ class Phi4MultimodalBackend(BaseVLMBackend):
             "Explanation: <short text>"
         )
 
-    def _extract_generated_text(self, raw: Any) -> str:
-        if isinstance(raw, str):
-            return raw
-        if isinstance(raw, dict):
-            for key in ("generated_text", "text", "answer"):
-                if key in raw and isinstance(raw[key], str):
-                    return raw[key]
-            return str(raw)
-        if isinstance(raw, list) and raw:
-            return self._extract_generated_text(raw[0])
-        return str(raw)
+    def _phi4_formatted_prompt(self, body: str) -> str:
+        user_t = "<|user|>"
+        asst_t = "<|assistant|>"
+        suff = "<|end|>"
+        return f"{user_t}<|image_1|>{body}{suff}{asst_t}"
 
     def predict_risk(
         self,
@@ -293,28 +345,28 @@ class Phi4MultimodalBackend(BaseVLMBackend):
         future_embedding: torch.Tensor | None = None,
         memory_embedding: torch.Tensor | None = None,
     ) -> VLMOutput:
-        self._ensure_pipeline()
-        assert self._pipeline is not None
+        self._ensure_model()
+        assert self._model is not None and self._processor is not None and self._torch_device is not None
         start = time.perf_counter()
-        prompt_text = self._augment_prompt(prompt, hoi_embedding, future_embedding, memory_embedding)
-        image_rgb = image[..., ::-1] if image is not None else None
-        try:
-            if image_rgb is not None:
-                raw = self._pipeline(
-                    text=prompt_text,
-                    images=image_rgb,
-                    max_new_tokens=int(self.config.max_tokens),
-                    temperature=float(self.config.temperature),
-                )
-            else:
-                raw = self._pipeline(
-                    text=prompt_text,
-                    max_new_tokens=int(self.config.max_tokens),
-                    temperature=float(self.config.temperature),
-                )
-        except TypeError:
-            raw = self._pipeline(prompt_text)
-        generated = self._extract_generated_text(raw).strip()
+        body = self._augment_prompt(prompt, hoi_embedding, future_embedding, memory_embedding)
+        full_prompt = self._phi4_formatted_prompt(body)
+        pil = _bgr_frame_to_pil(image)
+        inputs = self._processor(text=full_prompt, images=pil, return_tensors="pt")
+        inputs = _move_model_inputs(inputs, self._torch_device)
+        gen_kw: dict[str, Any] = {"max_new_tokens": int(self.config.max_tokens)}
+        temp = float(self.config.temperature)
+        if temp > 0.0:
+            gen_kw["do_sample"] = True
+            gen_kw["temperature"] = temp
+        else:
+            gen_kw["do_sample"] = False
+        with torch.inference_mode():
+            out_ids = self._model.generate(**inputs, **gen_kw)
+        in_len = int(inputs["input_ids"].shape[1])
+        new_tokens = out_ids[:, in_len:]
+        generated = self._processor.batch_decode(
+            new_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )[0].strip()
         if "Risk score" not in generated:
             generated = f"Risk score: 0.50\nExplanation: {generated[:220]}"
         return VLMOutput(
@@ -332,6 +384,132 @@ class Phi4MultimodalBackend(BaseVLMBackend):
         return {
             "backend": "phi4_mm",
             "model_id": self.config.phi4_model_id,
+            "precision": self.config.phi4_precision,
+            "estimated_vram_gb": self.config.phi4_estimated_vram_gb,
+        }
+
+
+class SmolVlmBackend(BaseVLMBackend):
+    """Compact Hugging Face VLM (SmolVLM / Idefics3 family) for real multimodal hazard scoring."""
+
+    def __init__(self, config: HazardConfig):
+        self.config = config
+        self._model: Any | None = None
+        self._processor: Any | None = None
+        self._torch_device: torch.device | None = None
+        self._init_attempted = False
+
+    def _ensure_model(self) -> None:
+        if self._model is not None and self._processor is not None:
+            return
+        if self._init_attempted:
+            raise RuntimeError("SmolVLM backend initialization previously failed.")
+        self._init_attempted = True
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+        mid = self.config.vlm_model_id
+        if torch.cuda.is_available():
+            self._torch_device = torch.device("cuda")
+            dtype = torch.float16
+        elif torch.backends.mps.is_available():
+            self._torch_device = torch.device("mps")
+            dtype = torch.float16
+        else:
+            self._torch_device = torch.device("cpu")
+            dtype = torch.float32
+        self._processor = AutoProcessor.from_pretrained(mid)
+        self._model = AutoModelForImageTextToText.from_pretrained(
+            mid,
+            torch_dtype=dtype,
+            _attn_implementation="eager",
+        ).to(self._torch_device)
+        self._model.eval()
+
+    def _augment_prompt(
+        self,
+        prompt: str,
+        hoi_embedding: torch.Tensor | None,
+        future_embedding: torch.Tensor | None,
+        memory_embedding: torch.Tensor | None,
+    ) -> str:
+        hoi_vec = _fit_vec(hoi_embedding, self.config.emb_dim)
+        fut_vec = _fit_vec(future_embedding, self.config.emb_dim)
+        mem_vec = _fit_vec(memory_embedding, self.config.emb_dim)
+        cosine_hf = float(torch.dot(_normalize(hoi_vec), _normalize(fut_vec)).item()) if fut_vec.numel() else 0.0
+        cosine_hm = float(torch.dot(_normalize(hoi_vec), _normalize(mem_vec)).item()) if mem_vec.numel() else 0.0
+        return (
+            f"{prompt}\n\n"
+            "Embedding context:\n"
+            f"- hoi_embedding_norm: {float(torch.linalg.norm(hoi_vec).item()):.4f}\n"
+            f"- future_embedding_norm: {float(torch.linalg.norm(fut_vec).item()):.4f}\n"
+            f"- memory_embedding_norm: {float(torch.linalg.norm(mem_vec).item()):.4f}\n"
+            f"- hoi_future_cosine: {cosine_hf:.4f}\n"
+            f"- hoi_memory_cosine: {cosine_hm:.4f}\n\n"
+            "Return exactly:\n"
+            "Risk score: <float 0-1>\n"
+            "Explanation: <short text>"
+        )
+
+    def predict_risk(
+        self,
+        prompt: str,
+        image: np.ndarray | None,
+        hoi_embedding: torch.Tensor | None = None,
+        future_embedding: torch.Tensor | None = None,
+        memory_embedding: torch.Tensor | None = None,
+    ) -> VLMOutput:
+        self._ensure_model()
+        assert self._model is not None and self._processor is not None and self._torch_device is not None
+        start = time.perf_counter()
+        prompt_text = self._augment_prompt(prompt, hoi_embedding, future_embedding, memory_embedding)
+        pil = _bgr_frame_to_pil(image)
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": pil},
+                    {"type": "text", "text": prompt_text},
+                ],
+            }
+        ]
+        inputs = self._processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        )
+        inputs = _move_model_inputs(inputs, self._torch_device)
+        gen_kw: dict[str, Any] = {"max_new_tokens": int(self.config.max_tokens)}
+        temp = float(self.config.temperature)
+        if temp > 0.0:
+            gen_kw["do_sample"] = True
+            gen_kw["temperature"] = temp
+        else:
+            gen_kw["do_sample"] = False
+        with torch.inference_mode():
+            out_ids = self._model.generate(**inputs, **gen_kw)
+        in_len = int(inputs["input_ids"].shape[1])
+        new_tokens = out_ids[:, in_len:]
+        decoded = self._processor.batch_decode(new_tokens, skip_special_tokens=True)[0]
+        generated = _strip_chat_assistant_prefix(decoded)
+        if "Risk score" not in generated:
+            generated = f"Risk score: 0.50\nExplanation: {generated[:220]}"
+        return VLMOutput(
+            generated_text=generated,
+            inference_ms=(time.perf_counter() - start) * 1000.0,
+            metadata={
+                "backend": "smolvlm",
+                "model_id": self.config.vlm_model_id,
+                "precision": self.config.phi4_precision,
+                "estimated_vram_gb": self.config.phi4_estimated_vram_gb,
+            },
+        )
+
+    def backend_metadata(self) -> dict[str, Any]:
+        return {
+            "backend": "smolvlm",
+            "model_id": self.config.vlm_model_id,
             "precision": self.config.phi4_precision,
             "estimated_vram_gb": self.config.phi4_estimated_vram_gb,
         }
