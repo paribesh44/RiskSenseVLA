@@ -310,3 +310,67 @@ Perception-only diagnostics are logged separately by:
 - `scripts/run_memory_example.py` -> stdout per-frame memory summaries (`--log`)
 - `scripts/eval_memory_fps.py` -> `outputs/memory_fps.json`
 
+## Module Responsibility Table
+
+| Module | Directory | Responsibility |
+|--------|-----------|----------------|
+| **io** | `io/` | Video capture from camera/file, FPS pacing, multi-view support |
+| **perception** | `perception/` | Open-vocab detection (GroundingDINO/YOLOE), CLIP embedding, mask segmentation |
+| **memory** | `memory/` | Hazard-aware SSM temporal state, object persistence tracking |
+| **hoi** | `hoi/` | Current HOI recognition and 1-3s future HOI prediction |
+| **hazard** | `hazard/` | VLM-based hazard scoring with pluggable backends, alert generation |
+| **attention** | `attention/` | Semantic compute allocation based on hazard risk |
+| **eval** | `eval/` | Metrics (THC/HAA/RME), ablation framework, plotting |
+| **viz** | `viz/` | Overlay rendering and JSONL run logging |
+| **train** | `train/` | Training loops, QAT/PTQ quantization, TorchScript/ONNX export, benchmarking |
+| **runtime** | `runtime/` | Backend selection (MPS/CUDA/CPU) and device routing |
+| **types** | `types/` | Shared dataclasses and inter-module data contracts |
+| **config** | `config.py` | YAML loading, merging, validation, typed accessors |
+| **synthetic** | `synthetic/` | Procedural hazard scene generation for training data |
+
+## ASCII System Diagram
+
+```
+                        +-----------+
+                        |  Config   |
+                        | (YAML)    |
+                        +-----+-----+
+                              |
+                              v
++--------+    +-----------+   +-----------+   +----------+   +---------+
+| Camera |    | Video     |-->| Open-Vocab|-->| Hazard   |-->| Predict |
+| / File |--->| Capture   |   | Perception|   | Memory   |   | HOI     |
++--------+    | (io)      |   | (percep.) |   | (SSM)    |   | Module  |
+              +-----------+   +-----------+   +----------+   +---------+
+                                                   ^              |
+                                                   |              v
+              +-----------+   +-----------+   +----+-----+   +---------+
+              | Overlay   |<--| JSONL     |<--| Hazard   |<--| Semantic|
+              | Render    |   | Logger    |   | Reasoner |   | Attent. |
+              | (viz)     |   | (viz)     |   | (VLM)    |   | Sched.  |
+              +-----------+   +-----------+   +----------+   +---------+
+```
+
+## Data Flow Summary
+
+1. **Frame Acquisition**: `VideoInput.stream()` yields `CapturedFrame(frame_index, timestamp, bgr, source_id)`
+2. **Perception**: `OpenVocabPerception.infer(bgr)` -> `list[PerceptionDetection]` with `track_id`, `label`, `confidence`, `bbox_xyxy`, `mask`, `clip_embedding`
+3. **Memory (1st)**: `HazardAwareMemory.update(timestamp, detections)` -> `MemoryState` (objects, hoi_embedding, state_vector)
+4. **HOI Prediction**: `PredictiveHOIModule.infer(memory_state, detections, timestamp)` -> `HOIInferenceOutput` (current triplets + future embeddings)
+5. **Hazard Reasoning**: `DistilledHazardReasoner.predict_hazard(hoi_current, hoi_future_embeddings, memory_state, frame_bgr)` -> `HazardOutput` (scores, alerts, explanations)
+6. **Memory (2nd)**: `memory.update(..., hazard_events=hazards)` to incorporate hazard feedback
+7. **Attention**: `SemanticAttentionScheduler.allocation(detections, hazards)` -> `dict[track_id, float]`
+8. **Logging**: `JsonlRunLogger.write(frame_data, alerts, attention, hazard_map)`
+9. **Visualization**: `render_frame(bgr, frame_data, alerts)` -> annotated BGR image
+
+## Ablation Variants
+
+The ablation framework supports drop-in replacement of pipeline components:
+
+| Component | Baseline | Ablation Alternative |
+|-----------|----------|---------------------|
+| Memory | `HazardAwareMemory` (SSM with hazard gating) | `NaiveMemory` (uniform decay, no hazard gating) |
+| HOI | `PredictiveHOIModule` (future prediction heads) | `ProtoHOIPredictor` (frame-only, no future) |
+| Attention | `SemanticAttentionScheduler` (risk-weighted) | `UniformAttentionScheduler` (equal allocation) |
+| Quantization | FP32 | INT8 QAT, INT4 PTQ, INT8 + pruning |
+

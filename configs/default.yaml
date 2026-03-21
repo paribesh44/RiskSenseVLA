@@ -8,7 +8,7 @@ io:
   source: 0
   width: 1280
   height: 720
-  save_video: false
+  save_video: True
   output_video_path: outputs/annotated.mp4
 
 models:

@@ -1,0 +1,3 @@
+hazard:
+  max_tokens: 32
+  explain: false
