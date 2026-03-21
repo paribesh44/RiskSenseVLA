@@ -21,8 +21,11 @@ def _hazard_color(severity: str) -> tuple[int, int, int]:
     return (0, 255, 0)
 
 
-def _label_hazard(label: str, hazards: list[HazardScore]) -> HazardScore | None:
-    rel = [h for h in hazards if h.object == label]
+def _track_hazard(track_id: str, label: str, hazards: list[HazardScore]) -> HazardScore | None:
+    rel = [h for h in hazards if h.track_id == track_id]
+    if not rel:
+        # Legacy compatibility fallback only when track_id is unavailable.
+        rel = [h for h in hazards if not h.track_id and h.object == label]
     if not rel:
         return None
     return max(rel, key=lambda x: x.score)
@@ -31,7 +34,7 @@ def _label_hazard(label: str, hazards: list[HazardScore]) -> HazardScore | None:
 def render_frame(frame_bgr: np.ndarray, frame_data: FrameData, alerts: list[str]) -> np.ndarray:
     out = frame_bgr.copy()
     for det in frame_data.detections:
-        hz = _label_hazard(det.label, frame_data.hazards)
+        hz = _track_hazard(det.track_id, det.label, frame_data.hazards)
         sev = hz.severity if hz else "low"
         score = hz.score if hz else 0.0
         color = _hazard_color(sev)
@@ -125,7 +128,22 @@ class JsonlRunLogger:
         hazard_inference_ms: float | None = None,
         hazard_backend: str | None = None,
         hazard_backend_metadata: dict[str, object] | None = None,
+        occlusion_events: list[dict[str, object]] | None = None,
+        track_metrics: list[dict[str, object]] | None = None,
+        horizon_predictions: list[dict[str, object]] | None = None,
+        horizon_actuals: list[dict[str, object]] | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> None:
+        normalized_horizon_predictions = [
+            {
+                "track_id": str(item.get("track_id", "")),
+                "horizon": int(item.get("horizon", item.get("horizon_seconds", 0))),
+                "predicted_action": str(item.get("predicted_action", "")),
+                **{k: v for k, v in item.items() if k not in {"track_id", "horizon", "horizon_seconds", "predicted_action"}},
+            }
+            for item in (horizon_predictions or [])
+            if str(item.get("track_id", "")).strip()
+        ]
         record = {
             "frame_id": frame_data.frame_index,
             "timestamp": frame_data.timestamp,
@@ -149,6 +167,7 @@ class JsonlRunLogger:
             "hazard_inference_ms": float(hazard_inference_ms) if hazard_inference_ms is not None else 0.0,
             "hazard_backend": hazard_backend or "unknown",
             "hazard_backend_metadata": hazard_backend_metadata or {},
+            "occlusion_events": occlusion_events or [],
             "memory_stats": (
                 {
                     "num_objects": len(frame_data.memory.objects) if frame_data.memory else 0,
@@ -160,6 +179,10 @@ class JsonlRunLogger:
             "latency_ms": frame_data.latency_ms,
             "attention_allocation": attention,
             "alerts": alerts,
+            "track_metrics": track_metrics or [],
+            "horizon_predictions": normalized_horizon_predictions,
+            "horizon_actuals": horizon_actuals or [],
+            "metadata": metadata or {},
         }
         self._fh.write(json.dumps(record) + "\n")
         self._fh.flush()

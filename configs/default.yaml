@@ -52,6 +52,7 @@ latency_targets_ms:
 hazard:
   future_horizon_seconds: 3
   alert_threshold: 0.65
+  use_vlm: true
   # Real multimodal VLM: SmolVLM fits laptop/MPS; use configs/phi4_multimodal.yaml for Phi-4 on CUDA.
   backend_type: smolvlm
   vlm_model_id: HuggingFaceTB/SmolVLM-500M-Instruct
@@ -71,3 +72,24 @@ hazard:
 logging:
   jsonl_path: outputs/realtime_log.jsonl
   save_frames: false
+
+memory:
+  use_hazard_weighting: true
+
+hoi:
+  use_prediction: true
+
+baseline:
+  memory_mode: hazard_aware
+  hoi_mode: predictive
+
+baselines:
+  memory_mode: hazard_aware
+  hoi_mode: predictive
+
+evaluation:
+  occlusion_prob: 0.0
+  occlusion_levels: [0.0, 0.2, 0.4, 0.6]
+
+reproducibility:
+  seed: 42

@@ -1,42 +1,34 @@
 """Hazard-aware temporal memory with a lightweight linear SSM core.
 
-Linear SSM used here
---------------------
-Let:
-  - ``u_t`` be the frame input built from detections/embeddings.
-  - ``x_t`` be the latent SSM state (``self.ssm_state``).
-  - ``W_in`` be ``self._input_proj`` and ``W_out`` be ``self._output_proj``.
-  - ``alpha`` be ``self.ssm_alpha`` and ``beta`` be ``self.ssm_beta``.
-  - ``g_t = 1 + 0.35 * avg_hazard_t``.
+This module implements the named method
+**Hazard-Weighted Selective State Memory (HW-SSM)**.
 
-The implemented recurrence is:
-  ``x_t = alpha * x_{t-1} + beta * g_t * (u_t @ W_in)``
+HW-SSM defines hazard-conditioned object retention as:
 
-and the emitted temporal embedding is:
-  ``e_t = normalize(x_t @ W_out)``
-  ``hoi_t = (1 - mix_t) * hoi_{t-1} + mix_t * e_t``
-with ``mix_t = clamp(embedding_mix + 0.2 * avg_hazard_t, 0, 0.8)``.
+- ``p_i(t) = p_base * (1 + alpha * h_i)``
+- ``d_i(t) = d_base / (1 + beta * h_i)``
 
-Where hazard enters the system
-------------------------------
-1) Input aggregation weighting (in ``_build_frame_input``):
-   ``weight_i = 0.5 + 0.5 * hazard_i`` for each detection.
-2) SSM input gate (in ``_update_ssm``):
-   ``g_t`` scales the input drive term ``B u_t``.
-3) Object persistence dynamics (in ``update``):
-   - observed object:
-     ``p_t = clip(p_{t-1} * (base_decay + hazard_retention_gain * h_t) + observation_boost * (0.5 + 0.5 * h_t))``
-   - stale object:
-     ``p_t = clip(p_{t-1} * (base_decay - stale_decay_penalty + hazard_retention_gain * h_prev))``
+Where:
 
-Why this is a linear SSM
-------------------------
-The latent transition is linear in previous state and input
-(``x_t = A_t x_{t-1} + B_t u_t``), where:
-  - ``A_t = alpha * I``
-  - ``B_t = beta * g_t * W_in``
-``g_t`` is an exogenous scalar from hazard signals, making this a
-linear time-varying SSM rather than a nonlinear recurrent model.
+- ``h_i`` is the hazard score for object ``i`` in ``[0, 1]``.
+- ``p_i(t)`` is the persistence gain applied when object ``i`` is observed.
+- ``d_i(t)`` is the decay rate applied when object ``i`` is unobserved.
+
+Operational mapping in ``update_state(...)``:
+
+- Observed update uses ``persistence_gain = p_i(t)`` and updates persistence with
+  the gain plus an observation boost.
+- Unobserved update uses ``decay = d_i(t)`` and applies multiplicative forgetting
+  ``p <- p * (1 - decay)``.
+
+Linear SSM used for temporal embedding:
+
+- ``x_t = ssm_alpha * x_{t-1} + ssm_beta * g_t * (u_t @ W_in)``
+- ``e_t = normalize(x_t @ W_out)``
+- ``hoi_t = (1 - mix_t) * hoi_{t-1} + mix_t * e_t``
+
+with ``g_t = 1 + 0.35 * avg_hazard_t`` and
+``mix_t = clamp(embedding_mix + 0.2 * avg_hazard_t, 0, 0.8)``.
 """
 
 from __future__ import annotations
@@ -70,13 +62,103 @@ def _copy_object_state(obj: MemoryObjectState) -> MemoryObjectState:
     )
 
 
+def update_state(
+    prev_state: dict[str, MemoryObjectState],
+    detections: list[PerceptionDetection],
+    hazard_scores: list[float],
+    *,
+    base_persistence: float,
+    base_decay: float,
+    alpha: float,
+    beta: float,
+    observation_boost: float,
+    min_persistence: float,
+    max_persistence: float,
+) -> tuple[dict[str, MemoryObjectState], int, int]:
+    """Update object memory state using HW-SSM hazard-weighted retention/decay.
+
+    HW-SSM equations:
+      persistence_gain(h) = base_persistence * (1 + alpha * h)
+      decay(h)            = base_decay / (1 + beta * h)
+
+    State transitions:
+      - Observed object:
+        p_t = clip(p_{t-1} * persistence_gain(h_t) + observation_boost * (0.5 + 0.5*h_t))
+      - Unobserved object:
+        p_t = clip(p_{t-1} * (1 - decay(h_prev)))
+
+    Parameters:
+      - prev_state: Prior per-track memory states keyed by track_id.
+      - detections: Current frame detections.
+      - hazard_scores: Per-detection hazard score in [0, 1], aligned with ``detections``.
+      - base_persistence: ``p_base``; base observed persistence multiplier.
+      - base_decay: ``d_base``; base unobserved decay rate (higher forgets faster).
+      - alpha: Hazard amplification on persistence gain ``p_i(t)``.
+      - beta: Hazard attenuation on decay ``d_i(t)``.
+      - observation_boost: Additive persistence term when an object is observed.
+      - min_persistence/max_persistence: Persistence clipping bounds.
+
+    Mechanism:
+      High hazard increases observed persistence gain and decreases unobserved decay,
+      producing longer memory retention for risky objects. Low hazard does the opposite,
+      allowing benign objects to fade quickly when not observed.
+    """
+    objects = {track_id: _copy_object_state(obj) for track_id, obj in prev_state.items()}
+    seen: set[str] = set()
+
+    for det_idx, det in enumerate(detections):
+        seen.add(det.track_id)
+        hz = _clamp(float(hazard_scores[det_idx]) if det_idx < len(hazard_scores) else 0.0, 0.0, 1.0)
+        persistence_gain = _clamp(base_persistence * (1.0 + alpha * hz), 0.0, 0.995)
+        obj = objects.get(det.track_id)
+        if obj is None:
+            obj = MemoryObjectState(
+                track_id=det.track_id,
+                label=det.label,
+                last_bbox_xyxy=det.bbox_xyxy,
+                persistence=_clamp(
+                    persistence_gain + observation_boost * (0.5 + 0.5 * hz),
+                    min_persistence,
+                    max_persistence,
+                ),
+                hazard_weight=hz,
+                age_frames=1,
+            )
+        else:
+            obj.last_bbox_xyxy = det.bbox_xyxy
+            obj.age_frames += 1
+            obj.persistence = _clamp(
+                obj.persistence * persistence_gain + observation_boost * (0.5 + 0.5 * hz),
+                min_persistence,
+                max_persistence,
+            )
+            obj.hazard_weight = _clamp(0.75 * obj.hazard_weight + 0.25 * hz, 0.0, 1.0)
+        objects[det.track_id] = obj
+
+    stale_count = 0
+    for track_id in tuple(objects):
+        if track_id in seen:
+            continue
+        stale_count += 1
+        obj = objects[track_id]
+        decay = _clamp(base_decay / (1.0 + beta * _clamp(obj.hazard_weight, 0.0, 1.0)), 0.0, 0.995)
+        obj.persistence = _clamp(obj.persistence * (1.0 - decay), 0.0, max_persistence)
+        if obj.persistence < min_persistence:
+            del objects[track_id]
+        else:
+            objects[track_id] = obj
+
+    return objects, len(seen), stale_count
+
+
 @dataclass(slots=True)
 class HazardAwareMemory:
     """Linear-time hazard-aware memory with SSM state for temporal context."""
 
-    base_decay: float = 0.86
-    stale_decay_penalty: float = 0.08
-    hazard_retention_gain: float = 0.14
+    base_persistence: float = 0.86
+    base_decay: float = 0.12
+    alpha: float = 0.14
+    beta: float = 1.4
     observation_boost: float = 0.20
     min_persistence: float = 0.05
     max_persistence: float = 1.0
@@ -86,6 +168,7 @@ class HazardAwareMemory:
     ssm_alpha: float = 0.90
     ssm_beta: float = 0.20
     embedding_mix: float = 0.18
+    use_hazard_weighting: bool = True
     log_updates: bool = False
     objects: dict[str, MemoryObjectState] = field(default_factory=dict)
     hoi_embedding: torch.Tensor = field(default_factory=lambda: torch.zeros((1, 256), dtype=torch.float32))
@@ -152,10 +235,15 @@ class HazardAwareMemory:
             extracted[0, :copy_n] = prev_state.to(torch.float32)[0, start : start + copy_n]
         self.ssm_state = extracted
 
-    def _hazard_weight(self, label: str, hazards: list[HazardScore]) -> float:
+    def _hazard_weight(self, track_id: str, hazards: list[HazardScore]) -> float:
         if not hazards:
             return 0.0
-        scores = [h.score for h in hazards if h.object == label or h.subject == label]
+        # Hazard memory is strictly track_id-based to preserve object identity.
+        # Label-based joins are disallowed in memory.
+        tid = track_id.strip()
+        if not tid:
+            return 0.0
+        scores = [h.score for h in hazards if getattr(h, "track_id", "") == tid]
         if not scores:
             return 0.0
         return _clamp(float(sum(scores) / len(scores)), 0.0, 1.0)
@@ -170,8 +258,8 @@ class HazardAwareMemory:
         if hazards is not None and det_idx < len(hazards):
             return _clamp(float(hazards[det_idx]), 0.0, 1.0)
         if hazard_events:
-            return self._hazard_weight(det.label, hazard_events)
-        return 1.0
+            return self._hazard_weight(det.track_id, hazard_events)
+        return 0.0
 
     def _embedding_for_detection(
         self,
@@ -294,58 +382,33 @@ class HazardAwareMemory:
             self._load_previous_state(previous_memory_state)
         hazard_events = hazard_events or []
 
-        seen: set[str] = set()
         resolved_hazards: list[float] = []
         for i, det in enumerate(detections):
-            seen.add(det.track_id)
             hz = self._resolve_hazard_score(i, det, hazards, hazard_events)
+            if not self.use_hazard_weighting:
+                hz = 0.0
             resolved_hazards.append(hz)
-            obj = self.objects.get(det.track_id)
-            if obj is None:
-                obj = MemoryObjectState(
-                    track_id=det.track_id,
-                    label=det.label,
-                    last_bbox_xyxy=det.bbox_xyxy,
-                    persistence=_clamp(0.35 + 0.60 * hz, self.min_persistence, self.max_persistence),
-                    hazard_weight=hz,
-                    age_frames=1,
-                )
-            else:
-                obj.last_bbox_xyxy = det.bbox_xyxy
-                obj.age_frames += 1
-                retain = _clamp(self.base_decay + self.hazard_retention_gain * hz, 0.0, 0.995)
-                recover = self.observation_boost * (0.5 + 0.5 * hz)
-                obj.persistence = _clamp(
-                    obj.persistence * retain + recover,
-                    self.min_persistence,
-                    self.max_persistence,
-                )
-                obj.hazard_weight = _clamp(0.75 * obj.hazard_weight + 0.25 * hz, 0.0, 1.0)
-            self.objects[det.track_id] = obj
-
-        stale_count = 0
-        for track_id in tuple(self.objects):
-            if track_id in seen:
-                continue
-            stale_count += 1
-            obj = self.objects[track_id]
-            retain = _clamp(
-                self.base_decay - self.stale_decay_penalty + self.hazard_retention_gain * obj.hazard_weight,
-                0.0,
-                0.995,
-            )
-            obj.persistence = _clamp(obj.persistence * retain, 0.0, self.max_persistence)
-            if obj.persistence < self.min_persistence:
-                del self.objects[track_id]
-            else:
-                self.objects[track_id] = obj
+        self.objects, observed_count, stale_count = update_state(
+            prev_state=self.objects,
+            detections=detections,
+            hazard_scores=resolved_hazards,
+            base_persistence=self.base_persistence,
+            base_decay=self.base_decay,
+            alpha=self.alpha,
+            beta=self.beta,
+            observation_boost=self.observation_boost,
+            min_persistence=self.min_persistence,
+            max_persistence=self.max_persistence,
+        )
 
         frame_input, avg_hazard = self._build_frame_input(detections, resolved_hazards)
         if not detections and self.objects:
             avg_hazard = float(sum(o.hazard_weight for o in self.objects.values()) / len(self.objects))
+        if not self.use_hazard_weighting:
+            avg_hazard = 0.0
         self._update_ssm(frame_input=frame_input, avg_hazard=avg_hazard)
 
-        state_vector = self._build_state_vector(observed_count=len(seen), stale_count=stale_count)
+        state_vector = self._build_state_vector(observed_count=observed_count, stale_count=stale_count)
         memory_state = MemoryState(
             timestamp=timestamp,
             objects=[_copy_object_state(obj) for obj in sorted(self.objects.values(), key=lambda x: x.track_id)],
@@ -354,7 +417,7 @@ class HazardAwareMemory:
         )
         self._maybe_log(
             timestamp=timestamp,
-            observed_count=len(seen),
+            observed_count=observed_count,
             stale_count=stale_count,
             callback=log_callback,
         )
