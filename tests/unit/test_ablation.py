@@ -230,6 +230,15 @@ class TestBuildPipeline:
         pipe = build_pipeline(ABLATION_REGISTRY["uniform_attention"], base_cfg)
         assert isinstance(pipe.attention, UniformAttentionScheduler)
 
+    def test_pipeline_respects_use_hazard_weighting_toggle(self, base_cfg: dict) -> None:
+        from risksense_vla.memory.hazard_memory import HazardAwareMemory
+
+        cfg = dict(base_cfg)
+        cfg["memory"] = {"use_hazard_weighting": False}
+        pipe = build_pipeline(ABLATION_REGISTRY["baseline"], cfg)
+        assert isinstance(pipe.memory, HazardAwareMemory)
+        assert pipe.memory.use_hazard_weighting is False
+
 
 # ---------------------------------------------------------------------------
 # Synthetic sequence generation
@@ -324,6 +333,7 @@ class TestCSVOutput:
             assert len(rows) == 2
             assert set(rows[0].keys()) == set(_CSV_COLUMNS)
             assert rows[0]["ablation"] == "baseline"
+            assert rows[0]["method_name"] == "HW-SSM (Proposed)"
             assert float(rows[0]["THC"]) == 0.75
             assert float(rows[1]["delta_THC_pct"]) != 0.0
         finally:

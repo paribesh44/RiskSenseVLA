@@ -73,6 +73,8 @@ class ProtoHOIPredictor:
                     t_start=timestamp,
                     t_end=timestamp,
                     predicted=False,
+                    subject_track_id="human",
+                    object_track_id=det.track_id,
                 )
             )
             for dt in range(1, self.future_horizon_seconds + 1):
@@ -86,6 +88,8 @@ class ProtoHOIPredictor:
                         t_start=timestamp,
                         t_end=timestamp + float(dt),
                         predicted=True,
+                        subject_track_id="human",
+                        object_track_id=det.track_id,
                     )
                 )
         return triplets

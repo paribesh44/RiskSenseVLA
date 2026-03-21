@@ -54,6 +54,8 @@ class HOI:
     confidence: float
     t_start: float
     t_end: float
+    subject_track_id: str = ""
+    object_track_id: str = ""
 
 
 @dataclass(slots=True)
@@ -76,6 +78,8 @@ class HOIInferenceOutput:
                     t_start=float(hoi.t_start),
                     t_end=float(hoi.t_end),
                     predicted=False,
+                    subject_track_id=hoi.subject_track_id,
+                    object_track_id=hoi.object_track_id,
                 )
             )
             if idx >= len(self.future_action_labels):
@@ -92,6 +96,8 @@ class HOIInferenceOutput:
                         t_start=float(hoi.t_start),
                         t_end=float(hoi.t_start + step),
                         predicted=True,
+                        subject_track_id=hoi.subject_track_id,
+                        object_track_id=hoi.object_track_id,
                     )
                 )
         return triplets
@@ -242,6 +248,8 @@ class PredictiveHOIModule:
                     confidence=min(1.0, max(0.0, act_conf * det.confidence)),
                     t_start=float(timestamp),
                     t_end=float(timestamp),
+                    subject_track_id="human",
+                    object_track_id=det.track_id,
                 )
             )
 

@@ -28,7 +28,15 @@ _SECTION_SCHEMA: dict[str, dict[str, type]] = {
     "hazard": {
         "alert_threshold": (int, float),  # type: ignore[dict-item]
         "backend_type": str,
+        "use_vlm": bool,
     },
+    "memory": {"use_hazard_weighting": bool},
+    "hoi": {"use_prediction": bool},
+    "evaluation": {
+        "occlusion_prob": (int, float),  # type: ignore[dict-item]
+        "occlusion_levels": list,
+    },
+    "reproducibility": {"seed": int},
     "optimization": {
         "quant_bits": int,
     },
@@ -103,6 +111,20 @@ def validate_config(cfg: dict[str, Any]) -> list[str]:
     att_thresh = cfg.get("attention", {}).get("semantic_attention_threshold", 0.6)
     if isinstance(att_thresh, (int, float)) and not (0.0 <= att_thresh <= 1.0):
         issues.append(f"attention.semantic_attention_threshold must be in [0, 1], got {att_thresh}")
+
+    occ_prob = cfg.get("evaluation", {}).get("occlusion_prob", 0.0)
+    if isinstance(occ_prob, (int, float)) and not (0.0 <= occ_prob <= 1.0):
+        issues.append(f"evaluation.occlusion_prob must be in [0, 1], got {occ_prob}")
+    occ_levels = cfg.get("evaluation", {}).get("occlusion_levels", [])
+    if occ_levels:
+        if not isinstance(occ_levels, list):
+            issues.append("evaluation.occlusion_levels must be a list of numbers in [0, 1]")
+        else:
+            for idx, level in enumerate(occ_levels):
+                if not isinstance(level, (int, float)) or not (0.0 <= float(level) <= 1.0):
+                    issues.append(
+                        f"evaluation.occlusion_levels[{idx}] must be numeric in [0, 1], got {level!r}"
+                    )
 
     for issue in issues:
         _LOG.warning("config validation: %s", issue)

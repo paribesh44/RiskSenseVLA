@@ -8,6 +8,7 @@ from risksense_vla.eval.metrics import (
     aggregate_sequences,
     evaluate_sequence,
     frame_metrics,
+    hazard_lead_time,
     hazard_anticipation_accuracy,
     risk_weighted_memory_efficiency,
     temporal_hoi_consistency,
@@ -94,6 +95,40 @@ class TestHAA:
     def test_no_hazards(self) -> None:
         records = [{"frame_id": i, "hazards": [], "hois": []} for i in range(10)]
         assert hazard_anticipation_accuracy(records) == 0.0
+
+
+class TestHazardLeadTime:
+    def test_empty(self) -> None:
+        out = hazard_lead_time([], [])
+        assert out["mean"] == 0.0
+        assert out["median"] == 0.0
+        assert out["distribution"] == []
+        assert out["missing_pre_event"] == 0
+
+    def test_signed(self) -> None:
+        events = [{"frame_id": 20, "track_id": "knife", "action": "cut"}]
+        predictions = [{"source_frame_id": 25, "track_id": "knife", "predicted_action": "cut"}]
+        out = hazard_lead_time(events, predictions)
+        assert out["samples"] == 1
+        assert out["mean"] == -5.0
+        assert out["missing_pre_event"] == 1
+
+    def test_uses_closest_pre_event_prediction_per_event(self) -> None:
+        events = [{"frame_id": 20, "track_id": "knife_1", "action": "cut"}]
+        predictions = [
+            {"source_frame_id": 3, "track_id": "knife_1", "predicted_action": "cut"},
+            {"source_frame_id": 11, "track_id": "knife_1", "predicted_action": "cut"},
+            {"source_frame_id": 18, "track_id": "knife_1", "predicted_action": "cut"},
+        ]
+        out = hazard_lead_time(events, predictions)
+        assert out["distribution"] == [2]
+
+    def test_no_prediction_for_key_records_none(self) -> None:
+        events = [{"frame_id": 20, "track_id": "knife_1", "action": "cut"}]
+        predictions = [{"source_frame_id": 10, "track_id": "other_track", "predicted_action": "cut"}]
+        out = hazard_lead_time(events, predictions)
+        assert out["samples"] == 0
+        assert out["distribution"] == [None]
 
     def test_all_anticipated(self) -> None:
         records = [

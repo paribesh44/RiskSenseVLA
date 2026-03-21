@@ -43,6 +43,8 @@ class HOITriplet:
     t_start: float
     t_end: float
     predicted: bool = False
+    subject_track_id: str = ""
+    object_track_id: str = ""
 
 
 @dataclass(slots=True)
@@ -55,6 +57,7 @@ class HazardScore:
     score: float
     severity: str
     explanation: str
+    track_id: str = ""
 
 
 @dataclass(slots=True)

@@ -22,6 +22,8 @@ import torch
 import torch.nn as nn
 
 from risksense_vla.attention.semantic_scheduler import SemanticAttentionScheduler
+from risksense_vla.experimental import apply_occlusion
+from risksense_vla.experimental import method_display_name
 from risksense_vla.eval.metrics import (
     SequenceMetrics,
     aggregate_sequences,
@@ -335,6 +337,11 @@ class AblationResult:
     fps: float = 0.0
     latency_ms: float = 0.0
     peak_memory_mb: float = 0.0
+    prediction_accuracy_1s: float = 0.0
+    prediction_accuracy_2s: float = 0.0
+    prediction_accuracy_3s: float = 0.0
+    hazard_lead_time_mean: float = 0.0
+    hazard_lead_time_median: float = 0.0
     per_module_fps: dict[str, float] = field(default_factory=dict)
     per_module_latency_ms: dict[str, float] = field(default_factory=dict)
     seed: int = 42
@@ -342,6 +349,13 @@ class AblationResult:
     def as_flat_dict(self) -> dict[str, Any]:
         return {
             "ablation": self.config_name,
+            "method_name": method_display_name(
+                "naive"
+                if self.config.memory_mode == "naive"
+                else "frame_only"
+                if self.config.hoi_mode == "frame_only"
+                else "hazard_aware"
+            ),
             "memory_mode": self.config.memory_mode,
             "hoi_mode": self.config.hoi_mode,
             "attention_mode": self.config.attention_mode,
@@ -354,6 +368,11 @@ class AblationResult:
             "FPS": round(self.fps, 2),
             "latency_ms": round(self.latency_ms, 4),
             "peak_memory_mb": round(self.peak_memory_mb, 2),
+            "prediction_accuracy@1s": round(self.prediction_accuracy_1s, 4),
+            "prediction_accuracy@2s": round(self.prediction_accuracy_2s, 4),
+            "prediction_accuracy@3s": round(self.prediction_accuracy_3s, 4),
+            "HazardLeadTimeMean": round(self.hazard_lead_time_mean, 4),
+            "HazardLeadTimeMedian": round(self.hazard_lead_time_median, 4),
         }
 
 
@@ -366,7 +385,13 @@ def _build_memory(config: AblationConfig, cfg: dict[str, Any]) -> HazardAwareMem
     emb_dim = int(cfg.get("perception", {}).get("embedding_dim", 256))
     if config.memory_mode == "naive":
         return NaiveMemory(emb_dim=emb_dim)
-    return HazardAwareMemory(emb_dim=emb_dim)
+    use_hazard_weighting = bool(cfg.get("memory", {}).get("use_hazard_weighting", True))
+    return HazardAwareMemory(
+        emb_dim=emb_dim,
+        alpha=0.0 if not use_hazard_weighting else 0.14,
+        beta=0.0 if not use_hazard_weighting else 1.4,
+        use_hazard_weighting=use_hazard_weighting,
+    )
 
 
 def _build_hoi(
@@ -584,6 +609,9 @@ def _run_pipeline_on_sequence(
     pipeline: AblationPipeline,
     records: list[dict[str, Any]],
     emb_dim: int = 256,
+    *,
+    occlusion_prob: float = 0.0,
+    seed: int = 42,
 ) -> list[dict[str, Any]]:
     """Execute the ablation pipeline over a sequence of frame records.
 
@@ -594,6 +622,7 @@ def _run_pipeline_on_sequence(
     memory = pipeline.memory
     memory_state: MemoryState | None = None
     processed: list[dict[str, Any]] = []
+    rng = random.Random(seed)
 
     for rec in records:
         frame_id = int(rec.get("frame_id", 0))
@@ -612,6 +641,7 @@ def _run_pipeline_on_sequence(
                 clip_embedding=torch.randn(emb_dim, dtype=torch.float32),
             )
             detections.append(det)
+        detections, occlusion_events = apply_occlusion(detections, occlusion_prob=occlusion_prob, rng=rng)
 
         raw_hazards = rec.get("hazards", [])
         hazard_scores = [
@@ -657,6 +687,8 @@ def _run_pipeline_on_sequence(
                 "object": t.object,
                 "confidence": float(t.confidence),
                 "predicted": bool(t.predicted),
+                "t_start": float(t.t_start),
+                "t_end": float(t.t_end),
             })
 
         processed.append({
@@ -671,6 +703,7 @@ def _run_pipeline_on_sequence(
                 "hoi": hoi_ms,
                 "attention": att_ms,
             },
+            "occlusion_events": occlusion_events,
         })
 
     return processed
@@ -711,7 +744,13 @@ class AblationRunner:
 
         seq_metrics: list[SequenceMetrics] = []
         for seq_records in sequences:
-            processed = _run_pipeline_on_sequence(pipeline, seq_records, self.emb_dim)
+            processed = _run_pipeline_on_sequence(
+                pipeline,
+                seq_records,
+                self.emb_dim,
+                occlusion_prob=float(self.cfg.get("evaluation", {}).get("occlusion_prob", 0.0)),
+                seed=config.seed,
+            )
             sm = evaluate_sequence(processed)
             seq_metrics.append(sm)
 
@@ -745,6 +784,11 @@ class AblationRunner:
             fps=agg["FPS"],
             latency_ms=agg["LatencyMS"],
             peak_memory_mb=peak_mem,
+            prediction_accuracy_1s=agg.get("prediction_accuracy@1s", 0.0),
+            prediction_accuracy_2s=agg.get("prediction_accuracy@2s", 0.0),
+            prediction_accuracy_3s=agg.get("prediction_accuracy@3s", 0.0),
+            hazard_lead_time_mean=agg.get("HazardLeadTimeMean", 0.0),
+            hazard_lead_time_median=agg.get("HazardLeadTimeMedian", 0.0),
             per_module_fps=per_module_fps,
             per_module_latency_ms=per_module_latency,
             seed=config.seed,
@@ -954,6 +998,7 @@ def multi_seed_results_to_csv(
 
 _CSV_COLUMNS = [
     "ablation",
+    "method_name",
     "memory_mode",
     "hoi_mode",
     "attention_mode",
@@ -966,6 +1011,11 @@ _CSV_COLUMNS = [
     "FPS",
     "latency_ms",
     "peak_memory_mb",
+    "prediction_accuracy@1s",
+    "prediction_accuracy@2s",
+    "prediction_accuracy@3s",
+    "HazardLeadTimeMean",
+    "HazardLeadTimeMedian",
     "delta_THC_pct",
     "delta_HAA_pct",
     "delta_RME_pct",

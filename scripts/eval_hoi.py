@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from risksense_vla.io import load_jsonl
 
 _LOG = logging.getLogger(__name__)
 
@@ -22,17 +23,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--gt-jsonl", default=None, help="Optional ground-truth JSONL for action/embedding evaluation.")
     p.add_argument("--report-json", default="outputs/hoi_eval.json")
     return p.parse_args()
-
-
-def _load_jsonl(path: str) -> list[dict[str, Any]]:
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"Missing JSONL: {path}")
-    records: list[dict[str, Any]] = []
-    for line in p.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            records.append(json.loads(line))
-    return records
 
 
 def _safe_mean(values: list[float]) -> float:
@@ -81,6 +71,18 @@ def _top_current_action(pred_record: dict[str, Any]) -> str:
 
 
 def _top_future_actions(pred_record: dict[str, Any]) -> dict[int, str]:
+    aligned = pred_record.get("horizon_predictions", [])
+    if isinstance(aligned, list) and aligned:
+        grouped: dict[int, list[str]] = defaultdict(list)
+        for item in aligned:
+            if not isinstance(item, dict):
+                continue
+            horizon = int(item.get("horizon_seconds", 0))
+            action = str(item.get("predicted_action", "")).strip()
+            if horizon > 0 and action:
+                grouped[horizon].append(action)
+        if grouped:
+            return {h: Counter(vals).most_common(1)[0][0] for h, vals in grouped.items() if vals}
     labels = pred_record.get("hoi_future_action_labels", [])
     if not isinstance(labels, list) or not labels:
         return {}
@@ -170,6 +172,9 @@ def evaluate(pred_records: list[dict[str, Any]], gt_records: list[dict[str, Any]
         str(h): float(future_hits_by_h[h] / future_total_by_h[h]) if future_total_by_h[h] else 0.0
         for h in sorted(set(future_total_by_h) | set(future_hits_by_h))
     }
+    report["prediction_accuracy@1s"] = float(report["future_action_top1_by_horizon"].get("1", 0.0))
+    report["prediction_accuracy@2s"] = float(report["future_action_top1_by_horizon"].get("2", 0.0))
+    report["prediction_accuracy@3s"] = float(report["future_action_top1_by_horizon"].get("3", 0.0))
     report["future_embedding_cosine_by_horizon"] = {
         str(h): _safe_mean(vals) for h, vals in sorted(cosine_by_h.items(), key=lambda x: x[0])
     }
@@ -178,8 +183,8 @@ def evaluate(pred_records: list[dict[str, Any]], gt_records: list[dict[str, Any]
 
 def main() -> None:
     args = parse_args()
-    pred_records = _load_jsonl(args.pred_log_jsonl)
-    gt_records = _load_jsonl(args.gt_jsonl) if args.gt_jsonl else None
+    pred_records = load_jsonl(args.pred_log_jsonl)
+    gt_records = load_jsonl(args.gt_jsonl) if args.gt_jsonl else None
     report = evaluate(pred_records, gt_records)
     out = Path(args.report_json)
     out.parent.mkdir(parents=True, exist_ok=True)

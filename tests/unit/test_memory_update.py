@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from risksense_vla.memory import HazardAwareMemory, update_hazard_memory
+from risksense_vla.memory.hazard_memory import update_state
 from risksense_vla.types import HazardScore, MemoryState, PerceptionDetection
 
 
@@ -156,3 +157,49 @@ def test_memory_contract_alignment() -> None:
     assert len(state.objects) == 1
     assert state.objects[0].track_id == "trk1"
     assert state.hoi_embedding.shape == (1, 256)
+
+
+def test_update_state_high_hazard_decays_slower_when_unseen() -> None:
+    low_obj = _det(track_id="low", label="box", confidence=0.8, bbox_xyxy=(0, 0, 20, 20), emb=_emb(1)[0])
+    high_obj = _det(track_id="high", label="knife", confidence=0.8, bbox_xyxy=(20, 20, 40, 40), emb=_emb(1)[0])
+    mem = HazardAwareMemory()
+    mem.update(timestamp=0.0, detections=[low_obj, high_obj], hazards=[0.05, 0.95])
+    low_before = mem.objects["low"].persistence
+    high_before = mem.objects["high"].persistence
+
+    updated, observed_count, stale_count = update_state(
+        prev_state=mem.objects,
+        detections=[],
+        hazard_scores=[],
+        base_persistence=mem.base_persistence,
+        base_decay=mem.base_decay,
+        alpha=mem.alpha,
+        beta=mem.beta,
+        observation_boost=mem.observation_boost,
+        min_persistence=mem.min_persistence,
+        max_persistence=mem.max_persistence,
+    )
+    assert observed_count == 0
+    assert stale_count == 2
+    assert "low" in updated and "high" in updated
+    low_drop = low_before - updated["low"].persistence
+    high_drop = high_before - updated["high"].persistence
+    assert high_drop < low_drop
+
+
+def test_missing_hazards_default_to_zero_not_one() -> None:
+    mem = HazardAwareMemory()
+    det = _det(track_id="x", label="knife", confidence=0.9, bbox_xyxy=(2, 2, 10, 10), emb=_emb(1)[0])
+    state = mem.update(timestamp=0.0, detections=[det], hazards=None, hazard_events=None)
+    assert state.objects[0].hazard_weight == 0.0
+
+
+def test_use_hazard_weighting_false_gates_all_terms() -> None:
+    det_low = _det(track_id="low", label="box", confidence=0.8, bbox_xyxy=(0, 0, 20, 20), emb=_emb(1)[0])
+    det_high = _det(track_id="high", label="knife", confidence=0.8, bbox_xyxy=(20, 20, 40, 40), emb=_emb(1)[0])
+    mem = HazardAwareMemory(use_hazard_weighting=False, alpha=0.0, beta=0.0)
+    state = mem.update(timestamp=0.0, detections=[det_low, det_high], hazards=[0.0, 1.0])
+    pers = {obj.track_id: obj.persistence for obj in state.objects}
+    hz = {obj.track_id: obj.hazard_weight for obj in state.objects}
+    assert abs(pers["low"] - pers["high"]) < 1e-6
+    assert hz["low"] == 0.0 and hz["high"] == 0.0

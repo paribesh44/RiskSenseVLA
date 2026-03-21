@@ -96,6 +96,8 @@ class HazardReasoner:
             t_start=float(getattr(hoi, "t_start")),
             t_end=float(getattr(hoi, "t_end")),
             predicted=bool(getattr(hoi, "predicted", False)),
+            subject_track_id=str(getattr(hoi, "subject_track_id", "")),
+            object_track_id=str(getattr(hoi, "object_track_id", "")),
         )
 
     def _resolve_track_object(self, object_label: str, memory_state: MemoryState) -> MemoryObjectState | None:
@@ -105,7 +107,10 @@ class HazardReasoner:
             return None
         return max(matches, key=lambda x: (x.persistence + 0.25 * x.hazard_weight, x.age_frames))
 
-    def _resolve_track_id(self, object_label: str, memory_state: MemoryState) -> str:
+    def _resolve_track_id(self, object_track_id: str, object_label: str, memory_state: MemoryState) -> str:
+        direct = object_track_id.strip()
+        if direct:
+            return direct
         target = self._resolve_track_object(object_label=object_label, memory_state=memory_state)
         if target is None:
             return f"unknown:{object_label.strip().lower()}"
@@ -275,8 +280,10 @@ class HazardReasoner:
         future_embeddings: list[torch.Tensor] = []
         for hoi in hois:
             idx = len(prompts)
-            track = self._resolve_track_id(hoi.object, memory_state=memory_state)
-            target = self._resolve_track_object(hoi.object, memory_state=memory_state)
+            track = self._resolve_track_id(hoi.object_track_id, hoi.object, memory_state=memory_state)
+            target = next((o for o in memory_state.objects if o.track_id == track), None)
+            if target is None:
+                target = self._resolve_track_object(hoi.object, memory_state=memory_state)
             memory_summary = self._summarize_memory(memory_state=memory_state, target=target)
             prox = self._proximity_flags(target=target, memory_state=memory_state)
             hoi_emb = self._text_proto(f"{hoi.subject}:{hoi.action}:{hoi.object}")
@@ -323,6 +330,7 @@ class HazardReasoner:
                     score=score,
                     severity=severity,
                     explanation=explanation,
+                    track_id=track_id,
                 )
             )
             hazard_by_track_id[track_id] = max(hazard_by_track_id.get(track_id, 0.0), score)
