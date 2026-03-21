@@ -45,7 +45,10 @@ frame-local computation.
 from __future__ import annotations
 
 import hashlib
+import logging
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 import cv2
@@ -55,6 +58,8 @@ import torch
 from risksense_vla.perception.embed import CLIPEmbedder, FallbackEmbedder
 from risksense_vla.perception.segment import BoxMaskSegmenter
 from risksense_vla.types import Detection, PerceptionDetection
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Detector(Protocol):
@@ -91,6 +96,68 @@ def _prompt_labels(open_vocab_labels: list[str] | None, default_labels: list[str
     labels = open_vocab_labels or default_labels
     cleaned = [x.strip() for x in labels if x and x.strip()]
     return cleaned if cleaned else list(default_labels)
+
+
+def _looks_like_hf_repo_id(model_name: str) -> bool:
+    """True when ``model_name`` is likely a Hugging Face repo id, not a local path."""
+    if not model_name or "/" not in model_name:
+        return False
+    if os.path.isabs(model_name) and os.path.isdir(model_name):
+        return False
+    if os.path.isdir(model_name):
+        return False
+    return True
+
+
+def _remove_zero_byte_incomplete_blobs(repo_id: str) -> int:
+    """Clean stale 0-byte downloads that can leave hub lock state wedged."""
+    hub_root = os.environ.get("HF_HUB_CACHE") or os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface", "hub"
+    )
+    blob_dir = Path(hub_root) / ("models--" + repo_id.replace("/", "--")) / "blobs"
+    if not blob_dir.is_dir():
+        return 0
+    removed = 0
+    for incomplete_blob in blob_dir.glob("*.incomplete"):
+        try:
+            if incomplete_blob.stat().st_size == 0:
+                incomplete_blob.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def _download_grounding_dino_weight_files(repo_id: str) -> None:
+    """Pre-download checkpoints so model load does not appear hung on first frame."""
+    from huggingface_hub import hf_hub_download
+
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "600")
+    removed = _remove_zero_byte_incomplete_blobs(repo_id)
+    if removed:
+        _LOGGER.warning(
+            "Removed %s stale 0-byte incomplete file(s) from Hugging Face cache.",
+            removed,
+        )
+
+    last_err: Exception | None = None
+    for filename in ("model.safetensors", "pytorch_model.bin"):
+        try:
+            _LOGGER.info(
+                "Downloading / verifying Grounding DINO weights: %s (%s) ...",
+                repo_id,
+                filename,
+            )
+            hf_hub_download(repo_id=repo_id, filename=filename)
+            return
+        except Exception as exc:  # pragma: no cover - network/hub environment dependent
+            last_err = exc
+    if last_err is not None:
+        raise RuntimeError(
+            "Unable to download Grounding DINO checkpoint from Hugging Face Hub. "
+            "Set HF_TOKEN, remove stale '*.incomplete' files from the model cache, "
+            "or run with the YOLOE backend config to avoid this dependency."
+        ) from last_err
 
 
 @dataclass(slots=True)
@@ -164,6 +231,9 @@ class GroundingDINOAdapter:
         try:
             from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
+            if not self.local_files_only and _looks_like_hf_repo_id(self.model_name):
+                _download_grounding_dino_weight_files(self.model_name)
+
             self._processor = AutoProcessor.from_pretrained(
                 self.model_name, local_files_only=self.local_files_only
             )
@@ -182,9 +252,13 @@ class GroundingDINOAdapter:
         assert self._model is not None and self._processor is not None
         h, w = frame_bgr.shape[:2]
         labels = _prompt_labels(open_vocab_labels, self.default_labels)
-        text_labels = [f"{label}." for label in labels]
+        # GroundingDINO in some Transformers versions expects a single caption-like
+        # prompt per image (not a list of independent class strings).
+        text_prompt = " . ".join(labels).strip()
+        if text_prompt and not text_prompt.endswith("."):
+            text_prompt += "."
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        inputs = self._processor(images=frame_rgb, text=text_labels, return_tensors="pt")
+        inputs = self._processor(images=frame_rgb, text=text_prompt, return_tensors="pt")
         model_inputs = {k: v.to(self.device) for k, v in inputs.items() if torch.is_tensor(v)}
         with torch.inference_mode():
             outputs = self._model(**model_inputs)
@@ -348,6 +422,8 @@ class OpenVocabPerception:
         m_cfg = cfg.get("models", {}) if isinstance(cfg, dict) else {}
         detector_name = str(p_cfg.get("detector_backend", m_cfg.get("detector", "grounding_dino"))).lower()
         embedder_name = str(p_cfg.get("embedder_backend", m_cfg.get("embedder", "clip_or_fallback"))).lower()
+        det_dev_mode = str(p_cfg.get("detector_device", "auto")).lower()
+        emb_dev_mode = str(p_cfg.get("embedder_device", "auto")).lower()
         allow_mock_backend = bool(p_cfg.get("allow_mock_backend", False))
         max_detections = int(p_cfg.get("detector_max_detections", 12))
         labels = p_cfg.get("default_labels", ["person", "knife", "stove", "vehicle"])
@@ -357,6 +433,18 @@ class OpenVocabPerception:
                 "Mock detector requested but disabled by config. "
                 "Set perception.allow_mock_backend=true to enable it explicitly."
             )
+        if det_dev_mode == "auto":
+            if detector_name in {"grounding_dino", "groundingdino"} and str(device) == "mps":
+                detector_device = "cpu"
+                _LOGGER.info(
+                    "Grounding DINO runs on CPU (MPS support for this checkpoint is unreliable)."
+                )
+            else:
+                detector_device = str(device)
+        else:
+            detector_device = det_dev_mode
+        embedder_device = str(device) if emb_dev_mode == "auto" else emb_dev_mode
+
         if detector_name in {"grounding_dino", "groundingdino"}:
             detector: Detector = GroundingDINOAdapter(
                 model_name=str(p_cfg.get("grounding_dino_model_id", "IDEA-Research/grounding-dino-base")),
@@ -364,7 +452,7 @@ class OpenVocabPerception:
                 text_threshold=float(p_cfg.get("detector_text_threshold", 0.25)),
                 max_detections=max_detections,
                 default_labels=labels,
-                device=device,
+                device=detector_device,
                 local_files_only=bool(p_cfg.get("local_files_only", False)),
             )
         elif detector_name in {"yoloe26", "yoloe-26", "yoloe"}:
@@ -373,7 +461,7 @@ class OpenVocabPerception:
                 confidence_threshold=float(p_cfg.get("detector_confidence_threshold", 0.35)),
                 max_detections=max_detections,
                 default_labels=labels,
-                device=device,
+                device=detector_device,
             )
         else:
             detector = MockOpenVocabDetector(default_label=labels[0] if labels else "person")
@@ -383,7 +471,7 @@ class OpenVocabPerception:
             embedder: Embedder = CLIPEmbedder(
                 model_name=str(p_cfg.get("clip_model_id", "openai/clip-vit-base-patch32")),
                 output_dim=embedding_dim,
-                device=device,
+                device=embedder_device,
                 batch_size=int(p_cfg.get("clip_batch_size", 8)),
                 enabled=True,
                 allow_fallback=False,
@@ -393,7 +481,7 @@ class OpenVocabPerception:
             embedder = CLIPEmbedder(
                 model_name=str(p_cfg.get("clip_model_id", "openai/clip-vit-base-patch32")),
                 output_dim=embedding_dim,
-                device=device,
+                device=embedder_device,
                 batch_size=int(p_cfg.get("clip_batch_size", 8)),
                 enabled=True,
                 allow_fallback=True,

@@ -52,7 +52,9 @@ latency_targets_ms:
 hazard:
   future_horizon_seconds: 3
   alert_threshold: 0.65
-  backend_type: phi4_mm
+  # Real multimodal VLM: SmolVLM fits laptop/MPS; use configs/phi4_multimodal.yaml for Phi-4 on CUDA.
+  backend_type: smolvlm
+  vlm_model_id: HuggingFaceTB/SmolVLM-500M-Instruct
   max_tokens: 64
   temperature: 0.2
   quantized: false

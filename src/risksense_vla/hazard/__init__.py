@@ -1,4 +1,12 @@
-from .backends import BaseVLMBackend, HazardConfig, Phi4MultimodalBackend, StubBackend, TinyLocalVLMBackend, VLMOutput
+from .backends import (
+    BaseVLMBackend,
+    HazardConfig,
+    Phi4MultimodalBackend,
+    SmolVlmBackend,
+    StubBackend,
+    TinyLocalVLMBackend,
+    VLMOutput,
+)
 from .hazard_reasoner import (
     DistilledHazardReasoner,
     HOIKey,
@@ -13,6 +21,7 @@ __all__ = [
     "VLMOutput",
     "HazardConfig",
     "Phi4MultimodalBackend",
+    "SmolVlmBackend",
     "TinyLocalVLMBackend",
     "StubBackend",
     "HOIKey",

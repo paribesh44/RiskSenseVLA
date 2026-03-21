@@ -65,6 +65,9 @@ def main() -> None:
         phi4_model_id=str(cfg.get("hazard", {}).get("phi4_model_id", "microsoft/Phi-4-multimodal-instruct")),
         phi4_precision=str(cfg.get("hazard", {}).get("phi4_precision", "int8")),
         phi4_estimated_vram_gb=float(cfg.get("hazard", {}).get("phi4_estimated_vram_gb", 10.0)),
+        vlm_model_id=str(
+            cfg.get("hazard", {}).get("vlm_model_id", "HuggingFaceTB/SmolVLM-500M-Instruct")
+        ),
         explain=bool(cfg.get("hazard", {}).get("explain", True)),
         debug_prompt=bool(cfg.get("hazard", {}).get("debug_prompt", False)),
     )

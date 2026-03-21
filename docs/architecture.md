@@ -118,7 +118,8 @@ The hazard reasoner is now prompt-driven and backend-pluggable under
 - `HazardReasoner(backend, config)` is the canonical implementation.
 - `DistilledHazardReasoner` remains as a backward-compatible wrapper.
 - Backends:
-  - `Phi4MultimodalBackend` (default Phase-4 backend)
+  - `SmolVlmBackend` (default real VLM on laptop/MPS)
+  - `Phi4MultimodalBackend` (Phi-4 on CUDA-class hardware)
   - `TinyLocalVLMBackend` (lightweight mode only)
   - `StubBackend` (lightweight mode only)
 
@@ -158,7 +159,8 @@ The backend response is parsed into:
 
 Primary `hazard:` keys in `configs/default.yaml`:
 
-- `backend_type`: `phi4_mm` (default) or `tiny`/`stub` when `lightweight_mode=true`
+- `backend_type`: `smolvlm` (default), `phi4_mm`, or `tiny`/`stub` when `lightweight_mode=true`
+- `vlm_model_id` for `smolvlm`
 - `max_tokens`: generation cap (default `64`)
 - `temperature`: decode temperature (default `0.2`)
 - `lightweight_mode`: enable tiny/stub lightweight backends
