@@ -1,7 +1,0 @@
-# Overlay: use Microsoft Phi-4 multimodal on a CUDA-capable machine (high VRAM).
-# Example: python scripts/run_realtime.py --config configs/default.yaml --backend-config configs/phi4_multimodal.yaml
-
-hazard:
-  backend_type: phi4_mm
-  phi4_model_id: microsoft/Phi-4-multimodal-instruct
-  phi4_estimated_vram_gb: 10.0

@@ -7,7 +7,10 @@ All training/eval scripts accept YAML config files:
 - `scripts/train_perception.py --config configs/default.yaml --backend-config configs/backend_mps.yaml`
 - `scripts/train_hoi.py --config configs/default.yaml --backend-config configs/backend_mps.yaml`
 - `scripts/train_hazard_vlm.py --config configs/default.yaml --backend-config configs/backend_mps.yaml`
-- `scripts/eval_all.py --log-jsonl outputs/realtime_log.jsonl`
+
+After `scripts/run_realtime.py` (or other tools) writes JSONL, load records with
+`risksense_vla.io.load_jsonl` and score them with `risksense_vla.eval.evaluate_sequence` /
+`aggregate_sequences`.
 
 Backend configs expose quantization/pruning/attention knobs:
 
