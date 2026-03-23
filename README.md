@@ -130,12 +130,12 @@ If Grounding DINO seems stuck on first run (no frames emitted for a long time), 
 usually waiting on Hugging Face weight download/lock resolution. Set `HF_TOKEN`, stop
 the run, remove `*.incomplete` files under
 `~/.cache/huggingface/hub/models--IDEA-Research--grounding-dino-base/blobs/`, and retry.
-As an alternative, run with YOLOE backend config:
+As an alternative, pin the stack explicitly with a backend override:
 
 ```bash
 python scripts/run_perception_smoke.py \
   --config configs/default.yaml \
-  --backend-config configs/local_webcam_yoloe.yaml \
+  --backend-config configs/backend_mps.yaml \
   --source 0 \
   --max-frames 30
 ```
@@ -185,13 +185,8 @@ Optional compact logging is available through:
 
 ### Memory Validation and Benchmark
 
-Example sequential memory run (with optional per-frame logging):
-
-```bash
-python scripts/run_memory_example.py --frames 24 --log
-```
-
-Unit tests for dynamic entry/exit and hazard decay:
+Exercise memory through the full stack with `scripts/run_realtime.py` (JSONL logs include
+memory fields) or run the focused unit tests:
 
 ```bash
 python -m pytest tests/unit/test_memory_update.py
@@ -271,16 +266,10 @@ python scripts/run_realtime.py --config configs/default.yaml --backend-config co
 - `debug_prompt`: include prompt text in logs for debugging
 - `reasoner_checkpoint`, `reasoner_fallback_mode`, `alert_threshold`
 
-### Hazard Validation Script
+### Hazard validation
 
-Run synthetic per-frame hazard reasoning with prompt/explanation logging:
-
-```bash
-python scripts/run_hazard_reasoner_example.py \
-  --backend-type tiny \
-  --max-frames 20 \
-  --output-jsonl outputs/hazard_reasoner_example.jsonl
-```
+Use `scripts/run_e2e_verify.py` (add `--fast` for a lightweight check) or
+`scripts/run_realtime.py` with your hazard backend settings in `configs/default.yaml`.
 
 ## Phase-4 Benchmark Gate
 

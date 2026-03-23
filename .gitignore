@@ -38,3 +38,7 @@ outputs/
 # q1_draft.md
 
 yolov8n.pt
+artifacts/
+
+# Local convenience; not part of the shared tree
+/Makefile

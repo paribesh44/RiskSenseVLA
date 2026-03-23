@@ -309,8 +309,8 @@ Perception-only diagnostics are logged separately by:
 
 - `scripts/run_perception_smoke.py` -> `outputs/perception_smoke.jsonl`
 - `scripts/eval_perception_fps.py` -> `outputs/perception_fps.json`
-- `scripts/run_memory_example.py` -> stdout per-frame memory summaries (`--log`)
 - `scripts/eval_memory_fps.py` -> `outputs/memory_fps.json`
+- `scripts/run_realtime.py` -> run JSONL includes memory and hazard fields
 
 ## Module Responsibility Table
 
