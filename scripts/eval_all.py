@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import json
 from pathlib import Path
 
-from hapvla.eval import aggregate_sequences, evaluate_sequence, plot_failure_heatmap, plot_hoi_trajectory
+from risksense_vla.eval import aggregate_sequences, evaluate_sequence, plot_failure_heatmap, plot_hoi_trajectory
+from risksense_vla.io import load_jsonl
+
+_LOG = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,20 +22,10 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def load_records(path: str) -> list[dict]:
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"Missing log file: {path}")
-    recs = []
-    for line in p.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            recs.append(json.loads(line))
-    return recs
-
-
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     args = parse_args()
-    recs = load_records(args.log_jsonl)
+    recs = load_jsonl(args.log_jsonl)
     seq = evaluate_sequence(recs)
     agg = aggregate_sequences([seq])
     report = {
@@ -42,6 +36,11 @@ def main() -> None:
             "FPS": seq.fps,
             "LatencyMS": seq.latency_ms,
             "mAP": seq.detection_map,
+            "HazardLeadTimeMean": seq.hazard_lead_time_mean,
+            "HazardLeadTimeMedian": seq.hazard_lead_time_median,
+            "prediction_accuracy@1s": seq.prediction_accuracy_by_horizon.get(1, 0.0),
+            "prediction_accuracy@2s": seq.prediction_accuracy_by_horizon.get(2, 0.0),
+            "prediction_accuracy@3s": seq.prediction_accuracy_by_horizon.get(3, 0.0),
         },
         "aggregate": agg,
     }
@@ -52,7 +51,7 @@ def main() -> None:
     plot_dir = Path(args.plots_dir)
     plot_failure_heatmap(recs, str(plot_dir / "hazard_attention_heatmap.png"))
     plot_hoi_trajectory(recs, str(plot_dir / "hoi_trajectory.png"))
-    print(json.dumps(report, indent=2))
+    _LOG.info("%s", json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":

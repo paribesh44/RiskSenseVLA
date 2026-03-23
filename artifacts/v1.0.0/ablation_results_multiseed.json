@@ -1,0 +1,163 @@
+[
+  {
+    "ablation": "baseline",
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      1024
+    ],
+    "n_seeds": 5,
+    "THC_mean": 0.1353,
+    "THC_std": 0.0251,
+    "THC_ci95_lo": 0.1041,
+    "THC_ci95_hi": 0.1665,
+    "HAA_mean": 1.0,
+    "HAA_std": 0.0,
+    "HAA_ci95_lo": 1.0,
+    "HAA_ci95_hi": 1.0,
+    "RME_mean": 0.2249,
+    "RME_std": 0.0122,
+    "FPS_mean": 111.1,
+    "FPS_std": 2.57
+  },
+  {
+    "ablation": "naive_memory",
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      1024
+    ],
+    "n_seeds": 5,
+    "THC_mean": 0.1346,
+    "THC_std": 0.0095,
+    "THC_ci95_lo": 0.1228,
+    "THC_ci95_hi": 0.1464,
+    "HAA_mean": 1.0,
+    "HAA_std": 0.0,
+    "HAA_ci95_lo": 1.0,
+    "HAA_ci95_hi": 1.0,
+    "RME_mean": 0.2249,
+    "RME_std": 0.0122,
+    "FPS_mean": 111.5,
+    "FPS_std": 2.54
+  },
+  {
+    "ablation": "frame_only_hoi",
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      1024
+    ],
+    "n_seeds": 5,
+    "THC_mean": 0.1381,
+    "THC_std": 0.0197,
+    "THC_ci95_lo": 0.1137,
+    "THC_ci95_hi": 0.1626,
+    "HAA_mean": 1.0,
+    "HAA_std": 0.0,
+    "HAA_ci95_lo": 1.0,
+    "HAA_ci95_hi": 1.0,
+    "RME_mean": 0.2249,
+    "RME_std": 0.0122,
+    "FPS_mean": 111.96,
+    "FPS_std": 2.59
+  },
+  {
+    "ablation": "uniform_attention",
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      1024
+    ],
+    "n_seeds": 5,
+    "THC_mean": 0.1353,
+    "THC_std": 0.0251,
+    "THC_ci95_lo": 0.1041,
+    "THC_ci95_hi": 0.1665,
+    "HAA_mean": 1.0,
+    "HAA_std": 0.0,
+    "HAA_ci95_lo": 1.0,
+    "HAA_ci95_hi": 1.0,
+    "RME_mean": 0.3798,
+    "RME_std": 0.0179,
+    "FPS_mean": 110.98,
+    "FPS_std": 2.48
+  },
+  {
+    "ablation": "int8_qat",
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      1024
+    ],
+    "n_seeds": 5,
+    "THC_mean": 0.1353,
+    "THC_std": 0.0251,
+    "THC_ci95_lo": 0.1041,
+    "THC_ci95_hi": 0.1665,
+    "HAA_mean": 1.0,
+    "HAA_std": 0.0,
+    "HAA_ci95_lo": 1.0,
+    "HAA_ci95_hi": 1.0,
+    "RME_mean": 0.2249,
+    "RME_std": 0.0122,
+    "FPS_mean": 111.1,
+    "FPS_std": 2.55
+  },
+  {
+    "ablation": "int4_ptq",
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      1024
+    ],
+    "n_seeds": 5,
+    "THC_mean": 0.1353,
+    "THC_std": 0.0251,
+    "THC_ci95_lo": 0.1041,
+    "THC_ci95_hi": 0.1665,
+    "HAA_mean": 1.0,
+    "HAA_std": 0.0,
+    "HAA_ci95_lo": 1.0,
+    "HAA_ci95_hi": 1.0,
+    "RME_mean": 0.2249,
+    "RME_std": 0.0122,
+    "FPS_mean": 111.13,
+    "FPS_std": 2.54
+  },
+  {
+    "ablation": "int8_masked",
+    "seeds": [
+      42,
+      123,
+      456,
+      789,
+      1024
+    ],
+    "n_seeds": 5,
+    "THC_mean": 0.1353,
+    "THC_std": 0.0251,
+    "THC_ci95_lo": 0.1041,
+    "THC_ci95_hi": 0.1665,
+    "HAA_mean": 1.0,
+    "HAA_std": 0.0,
+    "HAA_ci95_lo": 1.0,
+    "HAA_ci95_hi": 1.0,
+    "RME_mean": 0.2249,
+    "RME_std": 0.0122,
+    "FPS_mean": 111.14,
+    "FPS_std": 2.53
+  }
+]

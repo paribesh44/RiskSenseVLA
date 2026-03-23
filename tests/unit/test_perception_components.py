@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from hapvla.perception import BoxMaskSegmenter, CLIPEmbedder, FallbackEmbedder, OpenVocabPerception
-from hapvla.perception.open_vocab import Detector
-from hapvla.types import Detection
+from risksense_vla.perception import BoxMaskSegmenter, CLIPEmbedder, FallbackEmbedder, OpenVocabPerception
+from risksense_vla.perception.open_vocab import Detector
+from risksense_vla.types import Detection
 
 
 class BrokenDetector(Detector):
@@ -43,7 +43,8 @@ def test_detector_failure_falls_back_to_mock() -> None:
         detector=BrokenDetector(),
         segmenter=BoxMaskSegmenter(),
         embedder=FallbackEmbedder(dim=256),
+        allow_mock_backend=True,
     )
-    out = perception.infer(frame, labels=["knife"])
-    assert len(out.detections) >= 1
-    assert out.embeddings.shape[1] == 256
+    detections = perception.infer(frame, labels=["knife"])
+    assert len(detections) >= 1
+    assert detections[0].clip_embedding.shape[0] == 256

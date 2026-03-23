@@ -1,0 +1,30 @@
+runtime:
+  backend: mps
+  mixed_precision: true
+
+optimization:
+  quant_bits: 8
+  pruning_ratio: 0.1
+  backend_export_preference: coreml_or_onnx
+
+attention:
+  semantic_attention_threshold: 0.62
+  low_risk_scale: 0.45
+
+perception:
+  detector_backend: grounding_dino
+  embedder_backend: clip_or_fallback
+  detector_confidence_threshold: 0.35
+  detector_text_threshold: 0.25
+  detector_max_detections: 10
+  clip_batch_size: 8
+  local_files_only: false
+
+qat:
+  enabled: true
+  fake_quant_backend: mps
+  observer: moving_average_minmax
+
+int4:
+  enabled: false
+  calibration_batches: 32
