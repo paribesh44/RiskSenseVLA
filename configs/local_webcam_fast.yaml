@@ -1,0 +1,22 @@
+runtime:
+  target_fps: 20
+
+io:
+  # width: 640
+  # height: 360
+  save_video: false
+
+perception:
+  detector_max_detections: 10
+  detector_confidence_threshold: 0.30
+  detector_text_threshold: 0.20
+  clip_batch_size: 4
+
+hazard:
+  max_tokens: 24
+  explain: false
+  quantized: true
+  alert_threshold: 0.55
+  infer_every_n_frames: 1
+  min_hoi_confidence: 0.05
+  risky_object_labels: ["knife", "stove", "vehicle", "glass", "bottle"]

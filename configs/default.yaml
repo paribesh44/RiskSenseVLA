@@ -12,17 +12,20 @@ io:
   output_video_path: outputs/annotated.mp4
 
 models:
-  detector: grounding_dino
+  # detector: grounding_dino
+  detector: yoloe-26
   segmenter: box_mask
   embedder: clip_or_fallback
   hoi: protohoi
   hazard_reasoner: lac_rule_vlm
 
 perception:
-  detector_backend: grounding_dino
+  # detector_backend: grounding_dino
+  detector_backend: yoloe-26
   allow_mock_backend: false
   grounding_dino_model_id: IDEA-Research/grounding-dino-base
-  yoloe_model_path: yoloe-26s.pt
+  # yoloe_model_path: yoloe-26s.pt
+  yoloe_model_path: yolov8n.pt
   detector_confidence_threshold: 0.35
   detector_text_threshold: 0.25
   detector_max_detections: 12
@@ -52,8 +55,7 @@ latency_targets_ms:
 hazard:
   future_horizon_seconds: 3
   alert_threshold: 0.65
-  use_vlm: true
-  # Real multimodal VLM: SmolVLM fits laptop/MPS; use configs/phi4_multimodal.yaml for Phi-4 on CUDA.
+  use_vlm: true # Real multimodal VLM: SmolVLM fits laptop/MPS; use configs/phi4_multimodal.yaml for Phi-4 on CUDA.
   backend_type: smolvlm
   vlm_model_id: HuggingFaceTB/SmolVLM-500M-Instruct
   max_tokens: 64

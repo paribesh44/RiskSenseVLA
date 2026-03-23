@@ -36,3 +36,5 @@ outputs/
 
 # Untracked drafts (paper/ tracked for release)
 # q1_draft.md
+
+yolov8n.pt
