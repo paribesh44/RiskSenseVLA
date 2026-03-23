@@ -22,7 +22,7 @@ from risksense_vla.experimental import (
     resolve_mode,
     seed_everything,
 )
-from risksense_vla.hazard import DistilledHazardReasoner
+from risksense_vla.hazard import DistilledHazardReasoner, HazardOutput
 from risksense_vla.hoi import PredictiveHOIModule, ProtoHOIPredictor
 from risksense_vla.io import VideoInput, resolve_source
 from risksense_vla.memory import HazardAwareMemory
@@ -110,6 +110,13 @@ def main() -> None:
         explain=bool(cfg.get("hazard", {}).get("explain", True)),
         debug_prompt=bool(cfg.get("hazard", {}).get("debug_prompt", False)),
     )
+    hazard_cfg = cfg.get("hazard", {})
+    hazard_stride = max(1, int(hazard_cfg.get("infer_every_n_frames", 1)))
+    min_hoi_confidence = float(hazard_cfg.get("min_hoi_confidence", 0.35))
+    risky_labels_raw = hazard_cfg.get("risky_object_labels", [])
+    risky_object_labels = {
+        str(label).strip().lower() for label in risky_labels_raw if str(label).strip()
+    }
     attention = SemanticAttentionScheduler(
         threshold=float(cfg.get("attention", {}).get("semantic_attention_threshold", 0.6)),
         low_risk_scale=float(cfg.get("attention", {}).get("low_risk_scale", 0.5)),
@@ -117,6 +124,18 @@ def main() -> None:
     )
     logger = JsonlRunLogger(path=str(cfg.get("logging", {}).get("jsonl_path", "outputs/realtime_log.jsonl")))
     pending_horizon_predictions: list[dict[str, object]] = []
+    last_hazard_out = HazardOutput(
+        hazards=[],
+        alerts=[],
+        hazard_by_track_id={},
+        hazard_by_hoi={},
+        explanations={},
+        global_risk_score=0.0,
+        inference_ms=0.0,
+        prompt_debug={},
+        backend=hazard_backend,
+        backend_metadata=reasoner.backend.backend_metadata(),
+    )
 
     writer = None
     if bool(cfg.get("io", {}).get("save_video", False)):
@@ -160,12 +179,36 @@ def main() -> None:
                 hoi_future_embeddings = torch.zeros((0, 0, 0), dtype=torch.float32)
             t3 = time.perf_counter()
 
-            hazard_out = reasoner.predict_hazard(
-                hoi_current=hoi_current,
-                hoi_future_embeddings=hoi_future_embeddings,
-                memory_state=mem,
-                frame_bgr=captured.bgr,
-            )
+            filtered_hoi_current = [
+                h
+                for h in hoi_current
+                if float(h.confidence) >= min_hoi_confidence
+                and (not risky_object_labels or str(h.object).strip().lower() in risky_object_labels)
+            ]
+            if not filtered_hoi_current:
+                hazard_out = HazardOutput(
+                    hazards=[],
+                    alerts=[],
+                    hazard_by_track_id={},
+                    hazard_by_hoi={},
+                    explanations={},
+                    global_risk_score=0.0,
+                    inference_ms=0.0,
+                    prompt_debug={},
+                    backend=hazard_backend,
+                    backend_metadata=reasoner.backend.backend_metadata(),
+                )
+                last_hazard_out = hazard_out
+            elif (captured.frame_index % hazard_stride) == 0:
+                hazard_out = reasoner.predict_hazard(
+                    hoi_current=filtered_hoi_current,
+                    hoi_future_embeddings=hoi_future_embeddings,
+                    memory_state=mem,
+                    frame_bgr=captured.bgr,
+                )
+                last_hazard_out = hazard_out
+            else:
+                hazard_out = last_hazard_out
             t_h = time.perf_counter()
             # Update once more with new hazard signals.
             mem = memory.update(
