@@ -1,0 +1,44 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Tool caches and test artifacts
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Project outputs and logs
+outputs/
+*.log
+
+# Untracked drafts (paper/ tracked for release)
+# q1_draft.md
+
+yolov8n.pt
+artifacts/
+
+# Local convenience; not part of the shared tree
+/Makefile
