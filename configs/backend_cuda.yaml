@@ -1,0 +1,30 @@
+runtime:
+  backend: cuda
+  mixed_precision: true
+
+optimization:
+  quant_bits: 4
+  pruning_ratio: 0.2
+  backend_export_preference: tensorrt
+
+attention:
+  semantic_attention_threshold: 0.6
+  low_risk_scale: 0.4
+
+perception:
+  detector_backend: grounding_dino
+  embedder_backend: clip_or_fallback
+  detector_confidence_threshold: 0.3
+  detector_text_threshold: 0.2
+  detector_max_detections: 16
+  clip_batch_size: 16
+  local_files_only: false
+
+qat:
+  enabled: true
+  fake_quant_backend: cuda
+  observer: histogram
+
+int4:
+  enabled: true
+  calibration_batches: 64

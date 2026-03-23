@@ -1,0 +1,97 @@
+runtime:
+  backend: mps
+  device: auto
+  mixed_precision: true
+  target_fps: 25
+
+io:
+  source: 0
+  width: 1280
+  height: 720
+  save_video: True
+  output_video_path: outputs/annotated.mp4
+
+models:
+  # detector: grounding_dino
+  detector: yoloe-26
+  segmenter: box_mask
+  embedder: clip_or_fallback
+  hoi: protohoi
+  hazard_reasoner: lac_rule_vlm
+
+perception:
+  # detector_backend: grounding_dino
+  detector_backend: yoloe-26
+  allow_mock_backend: false
+  grounding_dino_model_id: IDEA-Research/grounding-dino-base
+  # yoloe_model_path: yoloe-26s.pt
+  yoloe_model_path: yolov8n.pt
+  detector_confidence_threshold: 0.35
+  detector_text_threshold: 0.25
+  detector_max_detections: 12
+  embedder_backend: clip_or_fallback
+  clip_model_id: openai/clip-vit-base-patch32
+  clip_batch_size: 8
+  embedding_dim: 256
+  local_files_only: false
+  default_labels: ["person", "knife", "stove", "vehicle", "glass", "bottle"]
+
+optimization:
+  quant_bits: 8
+  prune_enabled: false
+  pruning_ratio: 0.0
+  export_formats: ["torchscript", "onnx"]
+
+attention:
+  semantic_attention_threshold: 0.6
+  low_risk_scale: 0.5
+  high_risk_scale: 1.0
+
+latency_targets_ms:
+  perception: 50
+  memory: 5
+  hoi: 20
+
+hazard:
+  future_horizon_seconds: 3
+  alert_threshold: 0.65
+  use_vlm: true # Real multimodal VLM: SmolVLM fits laptop/MPS; use configs/phi4_multimodal.yaml for Phi-4 on CUDA.
+  backend_type: smolvlm
+  vlm_model_id: HuggingFaceTB/SmolVLM-500M-Instruct
+  max_tokens: 64
+  temperature: 0.2
+  quantized: false
+  lightweight_mode: false
+  explain: true
+  debug_prompt: false
+  reasoner_model_type: phi4_multimodal
+  reasoner_checkpoint: artifacts/hazard_reasoner.pt
+  reasoner_fallback_mode: blend
+  phi4_model_id: microsoft/Phi-4-multimodal-instruct
+  phi4_precision: int8
+  phi4_estimated_vram_gb: 10.0
+
+logging:
+  jsonl_path: outputs/realtime_log.jsonl
+  save_frames: false
+
+memory:
+  use_hazard_weighting: true
+
+hoi:
+  use_prediction: true
+
+baseline:
+  memory_mode: hazard_aware
+  hoi_mode: predictive
+
+baselines:
+  memory_mode: hazard_aware
+  hoi_mode: predictive
+
+evaluation:
+  occlusion_prob: 0.0
+  occlusion_levels: [0.0, 0.2, 0.4, 0.6]
+
+reproducibility:
+  seed: 42
