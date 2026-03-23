@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Config-driven perception training skeleton with AMP + QAT hooks."""
+"""Config-driven perception training with AMP, QAT, and validation."""
 
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from hapvla.config import load_config
-from hapvla.runtime import pick_backend
+from risksense_vla.config import load_config
+from risksense_vla.train import ModuleTrainer, apply_qat, train_val_split
+
+_LOG = logging.getLogger(__name__)
 
 
 class TinyPerceptionModel(nn.Module):
@@ -37,55 +40,33 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--backend-config", default="configs/backend_mps.yaml")
     p.add_argument("--epochs", type=int, default=2)
     p.add_argument("--batch-size", type=int, default=8)
-    p.add_argument("--output", default="artifacts/perception.pt")
+    p.add_argument("--val-split", type=float, default=0.1)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--output", default="trained_models/perception/checkpoint.pt")
     return p.parse_args()
-
-
-def maybe_prepare_qat(model: nn.Module, cfg: dict) -> nn.Module:
-    if bool(cfg.get("qat", {}).get("enabled", False)):
-        try:
-            model.train()
-            model.qconfig = torch.ao.quantization.get_default_qat_qconfig("fbgemm")
-            return torch.ao.quantization.prepare_qat(model)
-        except Exception as exc:  # pragma: no cover - environment dependent.
-            print(f"[perception] skipping QAT setup: {exc}")
-    return model
 
 
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config, args.backend_config)
-    backend = pick_backend(cfg.get("runtime", {}).get("backend", "mps"))
-    device = torch.device(backend.device)
 
     x = torch.randn(128, 3, 128, 128)
     y = torch.randn(128, 256)
-    loader = DataLoader(TensorDataset(x, y), batch_size=args.batch_size, shuffle=True)
+    full_ds = TensorDataset(x, y)
+    train_ds, val_ds = train_val_split(full_ds, val_ratio=args.val_split, seed=args.seed)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, num_workers=0) if val_ds else None
 
-    model = TinyPerceptionModel().to(device)
-    model = maybe_prepare_qat(model, cfg)
-    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    model = TinyPerceptionModel()
+    model = apply_qat(model, cfg)
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-2)
     loss_fn = nn.MSELoss()
-    use_amp = bool(cfg.get("runtime", {}).get("mixed_precision", True)) and backend.device != "cpu"
-    for epoch in range(args.epochs):
-        model.train()
-        running = 0.0
-        for xb, yb in loader:
-            xb = xb.to(device)
-            yb = yb.to(device)
-            opt.zero_grad(set_to_none=True)
-            with torch.autocast(device_type=device.type, enabled=use_amp, dtype=torch.float16):
-                pred = model(xb)
-                loss = loss_fn(pred, yb)
-            loss.backward()
-            opt.step()
-            running += float(loss.item())
-        print(f"[perception] epoch={epoch} loss={running/len(loader):.4f}")
 
-    out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"state_dict": model.state_dict(), "config": cfg}, out)
-    print(f"Saved {out}")
+    log_path = Path(args.output).parent / "train_log.jsonl"
+    trainer = ModuleTrainer(model, opt, loss_fn, cfg, log_path=log_path)
+    trainer.fit(train_loader, val_loader, epochs=args.epochs)
+    trainer.save_checkpoint(args.output)
+    _LOG.info("Saved %s", args.output)
 
 
 if __name__ == "__main__":

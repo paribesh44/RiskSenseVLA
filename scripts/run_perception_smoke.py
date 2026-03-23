@@ -5,15 +5,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import time
 from pathlib import Path
 
 import cv2
 
-from hapvla.config import load_config
-from hapvla.io import VideoInput, resolve_source
-from hapvla.perception import OpenVocabPerception
-from hapvla.runtime import pick_backend
+_LOG = logging.getLogger(__name__)
+
+from risksense_vla.config import load_config
+from risksense_vla.io import VideoInput, resolve_source
+from risksense_vla.perception import OpenVocabPerception
+from risksense_vla.runtime import pick_backend
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,7 +63,7 @@ def main() -> None:
     args = parse_args()
     cfg = load_config(args.config, args.backend_config)
     backend = pick_backend(cfg.get("runtime", {}).get("backend", "mps"))
-    print(f"[perception-smoke] backend={backend.name} device={backend.device}")
+    _LOG.info("[perception-smoke] backend=%s device=%s", backend.name, backend.device)
 
     src = args.source if args.source is not None else str(cfg.get("io", {}).get("source", 0))
     width = int(cfg.get("io", {}).get("width", 1280))
@@ -78,15 +81,15 @@ def main() -> None:
         with out_path.open("w", encoding="utf-8") as fh:
             for captured in capture.stream():
                 t0 = time.perf_counter()
-                out = perception.infer(captured.bgr, labels=labels)
+                detections = perception.infer(captured.bgr, labels=labels)
                 dt_ms = (time.perf_counter() - t0) * 1000.0
                 latencies_ms.append(dt_ms)
                 fps_now = 1000.0 / dt_ms if dt_ms > 0 else 0.0
                 record = {
                     "frame_id": captured.frame_index,
                     "timestamp": captured.timestamp,
-                    "num_detections": len(out.detections),
-                    "labels": [d.label for d in out.detections],
+                    "num_detections": len(detections),
+                    "labels": [d.label for d in detections],
                     "latency_ms": dt_ms,
                     "fps": fps_now,
                 }
@@ -94,15 +97,15 @@ def main() -> None:
                 fh.flush()
 
                 if not args.no_display:
-                    vis = _render(captured.bgr, out.detections, dt_ms)
-                    cv2.imshow("HAPVLA Perception Smoke", vis)
+                    vis = _render(captured.bgr, detections, dt_ms)
+                    cv2.imshow("RiskSense-VLA Perception Smoke", vis)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
 
                 if captured.frame_index % 20 == 0:
-                    print(
-                        f"[perception-smoke] frame={captured.frame_index} "
-                        f"dets={len(out.detections)} latency={dt_ms:.1f}ms fps={fps_now:.1f}"
+                    _LOG.info(
+                        "[perception-smoke] frame=%s dets=%s latency=%.1fms fps=%.1f",
+                        captured.frame_index, len(detections), dt_ms, fps_now,
                     )
                 if args.max_frames and captured.frame_index + 1 >= args.max_frames:
                     break
@@ -113,11 +116,12 @@ def main() -> None:
     if latencies_ms:
         avg_ms = sum(latencies_ms) / len(latencies_ms)
         avg_fps = 1000.0 / avg_ms if avg_ms > 0 else 0.0
-        print(
-            f"[perception-smoke] completed frames={len(latencies_ms)} "
-            f"avg_latency={avg_ms:.2f}ms avg_fps={avg_fps:.2f}"
+        _LOG.info(
+            "[perception-smoke] completed frames=%s avg_latency=%.2fms avg_fps=%.2f",
+            len(latencies_ms), avg_ms, avg_fps,
         )
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()

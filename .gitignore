@@ -34,5 +34,7 @@ htmlcov/
 outputs/
 *.log
 
-#base files
-q1_draft.md
+# Untracked drafts (paper/ tracked for release)
+# q1_draft.md
+
+yolov8n.pt

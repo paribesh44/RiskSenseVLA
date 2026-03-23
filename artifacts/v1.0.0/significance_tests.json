@@ -1,0 +1,170 @@
+[
+  {
+    "t_stat": 0.06742494467399689,
+    "p_value": 0.9494791284878339,
+    "cohens_d": -0.030153351934043893,
+    "ablation": "naive_memory",
+    "metric": "thc"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "naive_memory",
+    "metric": "haa"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "naive_memory",
+    "metric": "rme"
+  },
+  {
+    "t_stat": -17.270774238429265,
+    "p_value": 6.595674287985032e-05,
+    "cohens_d": 7.723725044236,
+    "ablation": "naive_memory",
+    "metric": "fps"
+  },
+  {
+    "t_stat": -0.21584445098596017,
+    "p_value": 0.8396689236044813,
+    "cohens_d": 0.09652857299414569,
+    "ablation": "frame_only_hoi",
+    "metric": "thc"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "frame_only_hoi",
+    "metric": "haa"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "frame_only_hoi",
+    "metric": "rme"
+  },
+  {
+    "t_stat": -51.0770806746774,
+    "p_value": 8.793018893431286e-07,
+    "cohens_d": 22.842364896163897,
+    "ablation": "frame_only_hoi",
+    "metric": "fps"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "uniform_attention",
+    "metric": "thc"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "uniform_attention",
+    "metric": "haa"
+  },
+  {
+    "t_stat": -50.985523285649734,
+    "p_value": 8.856268342170808e-07,
+    "cohens_d": 22.801419187022244,
+    "ablation": "uniform_attention",
+    "metric": "rme"
+  },
+  {
+    "t_stat": 0.9740830241053879,
+    "p_value": 0.3851724443764698,
+    "cohens_d": -0.4356231715256428,
+    "ablation": "uniform_attention",
+    "metric": "fps"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int8_qat",
+    "metric": "thc"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int8_qat",
+    "metric": "haa"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int8_qat",
+    "metric": "rme"
+  },
+  {
+    "t_stat": -0.03572239318200789,
+    "p_value": 0.9732153253794066,
+    "cohens_d": 0.01597553989478893,
+    "ablation": "int8_qat",
+    "metric": "fps"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int4_ptq",
+    "metric": "thc"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int4_ptq",
+    "metric": "haa"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int4_ptq",
+    "metric": "rme"
+  },
+  {
+    "t_stat": -1.8733425756884867,
+    "p_value": 0.13431089427280987,
+    "cohens_d": 0.8377842688768002,
+    "ablation": "int4_ptq",
+    "metric": "fps"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int8_masked",
+    "metric": "thc"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int8_masked",
+    "metric": "haa"
+  },
+  {
+    "t_stat": NaN,
+    "p_value": NaN,
+    "cohens_d": 0.0,
+    "ablation": "int8_masked",
+    "metric": "rme"
+  },
+  {
+    "t_stat": -1.6607701570431543,
+    "p_value": 0.17209630817717864,
+    "cohens_d": 0.7427189932302988,
+    "ablation": "int8_masked",
+    "metric": "fps"
+  }
+]
