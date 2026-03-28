@@ -95,14 +95,29 @@ $$
 
 and tracks falling below a minimum persistence are removed. Observed tracks also apply exponential smoothing $\tilde{h}_i^{(t)} = \mathrm{clip}(0.75\,\tilde{h}_i^{(t-1)} + 0.25\, h_i)$.
 
-**Linear SSM core and HOI embedding.** Let $\mathbf{u}_t \in \mathbb{R}^{d_{\mathrm{in}}}$ be the pooled frame input from detections (embeddings + box features + scalars), $\mathbf{W}_{\mathrm{in}} \in \mathbb{R}^{d_{\mathrm{in}} \times d_x}$, $\mathbf{W}_{\mathrm{out}} \in \mathbb{R}^{d_x \times d_e}$, and $\bar{h}_t$ the average hazard over detections at $t$. With scalars $\alpha_{\mathrm{ssm}}, \beta_{\mathrm{ssm}}$ (code: `ssm_alpha`, `ssm_beta`) and hazard gate $g_t = 1 + 0.35\,\bar{h}_t$,
+**Linear SSM core and HOI embedding.** Pooled frame input from detections (embeddings + box features + scalars), projection matrices, average hazard, SSM scalars (`ssm_alpha`, `ssm_beta`), and hazard gate:
+
+$$
+\mathbf{u}_t \in \mathbb{R}^{d_{\mathrm{in}}}, \quad
+\mathbf{W}_{\mathrm{in}} \in \mathbb{R}^{d_{\mathrm{in}} \times d_x}, \quad
+\mathbf{W}_{\mathrm{out}} \in \mathbb{R}^{d_x \times d_e}, \quad
+\bar{h}_t,\quad
+\alpha_{\mathrm{ssm}},\ \beta_{\mathrm{ssm}}, \quad
+g_t = 1 + 0.35\,\bar{h}_t.
+$$
+
+SSM state and normalized output:
 
 $$
 \mathbf{x}_t = \alpha_{\mathrm{ssm}}\,\mathbf{x}_{t-1} + \beta_{\mathrm{ssm}}\, g_t\, (\mathbf{u}_t \mathbf{W}_{\mathrm{in}}), \qquad
 \mathbf{e}_t = \frac{\mathbf{x}_t \mathbf{W}_{\mathrm{out}}}{\lVert \mathbf{x}_t \mathbf{W}_{\mathrm{out}} \rVert + \varepsilon}.
 $$
 
-The HOI embedding $\mathbf{z}_t \in \mathbb{R}^{d_e}$ mixes the previous embedding with $\mathbf{e}_t$: with $m_t = \mathrm{clip}(m_0 + 0.2\,\bar{h}_t,\, 0,\, 0.8)$ for configured base mix $m_0$,
+HOI embedding update (mixing coefficient and recurrence):
+
+$$
+m_t = \mathrm{clip}(m_0 + 0.2\,\bar{h}_t,\, 0,\, 0.8),
+$$
 
 $$
 \mathbf{z}_t = (1 - m_t)\,\mathbf{z}_{t-1} + m_t\,\mathbf{e}_t.
