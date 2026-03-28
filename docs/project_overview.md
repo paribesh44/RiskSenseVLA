@@ -68,6 +68,76 @@ At inference time, for each incoming frame (with timestamp), the pipeline execut
 
 Module graphs, sequence diagrams, and Phase 3/4 detail are in `[architecture.md](architecture.md)`.
 
+### 4.1 Mathematical formulation
+
+This subsection states the **operational equations** implemented in code (not an abstract model family). Symbols: frame index $t$, track $i$, hazard score $h_i \in [0,1]$, base persistence $p_{\mathrm{base}}$, base decay $d_{\mathrm{base}}$, hazard scaling coefficients $\alpha,\beta$, and clipping to a valid range $\mathrm{clip}(\cdot)$.
+
+**Hazard-weighted retention (HW-SSM).** Per-track persistence gain and decay depend on hazard:
+
+$$
+p_i(t) = p_{\mathrm{base}}\bigl(1 + \alpha\, h_i\bigr), \qquad
+d_i(t) = \frac{d_{\mathrm{base}}}{1 + \beta\, h_i}.
+$$
+
+Let $p_i^{(t)}$ denote track persistence after the update at $t$, and let $b$ be the configured observation boost. If track $i$ is **observed** at $t$ with hazard $h_i$,
+
+$$
+p_i^{(t)} = \mathrm{clip}\!\left(p_i^{(t-1)}\, p_i(t) + b\,(0.5 + 0.5\, h_i)\right).
+$$
+
+For a **newly initialized** track (no prior state), persistence is set to $\mathrm{clip}(p_i(t) + b(0.5 + 0.5 h_i))$ instead of the recurrent form above.
+
+If track $i$ is **not** observed, with previous hazard weight $\tilde{h}_i$ on that track,
+
+$$
+p_i^{(t)} = \mathrm{clip}\!\left(p_i^{(t-1)}\bigl(1 - d_i(\tilde{h}_i)\bigr)\right),
+$$
+
+and tracks falling below a minimum persistence are removed. Observed tracks also apply exponential smoothing $\tilde{h}_i^{(t)} = \mathrm{clip}(0.75\,\tilde{h}_i^{(t-1)} + 0.25\, h_i)$.
+
+**Linear SSM core and HOI embedding.** Let $\mathbf{u}_t \in \mathbb{R}^{d_{\mathrm{in}}}$ be the pooled frame input from detections (embeddings + box features + scalars), $\mathbf{W}_{\mathrm{in}} \in \mathbb{R}^{d_{\mathrm{in}} \times d_x}$, $\mathbf{W}_{\mathrm{out}} \in \mathbb{R}^{d_x \times d_e}$, and $\bar{h}_t$ the average hazard over detections at $t$. With scalars $\alpha_{\mathrm{ssm}}, \beta_{\mathrm{ssm}}$ (code: `ssm_alpha`, `ssm_beta`) and hazard gate $g_t = 1 + 0.35\,\bar{h}_t$,
+
+$$
+\mathbf{x}_t = \alpha_{\mathrm{ssm}}\,\mathbf{x}_{t-1} + \beta_{\mathrm{ssm}}\, g_t\, (\mathbf{u}_t \mathbf{W}_{\mathrm{in}}), \qquad
+\mathbf{e}_t = \frac{\mathbf{x}_t \mathbf{W}_{\mathrm{out}}}{\lVert \mathbf{x}_t \mathbf{W}_{\mathrm{out}} \rVert + \varepsilon}.
+$$
+
+The HOI embedding $\mathbf{z}_t \in \mathbb{R}^{d_e}$ mixes the previous embedding with $\mathbf{e}_t$: with $m_t = \mathrm{clip}(m_0 + 0.2\,\bar{h}_t,\, 0,\, 0.8)$ for configured base mix $m_0$,
+
+$$
+\mathbf{z}_t = (1 - m_t)\,\mathbf{z}_{t-1} + m_t\,\mathbf{e}_t.
+$$
+
+**Predictive HOI head.** Given object embedding $\mathbf{o}$ and memory embedding $\mathbf{m}$ (same dimension $d_e$), the fine-tuned `PredictiveHOINet` maps $\mathbf{x} = [\mathbf{o};\mathbf{m}]$ through a shallow MLP to logits for the current action and, for each horizon step $\tau \in \{1,\ldots,T_h\}$, future action logits and future embeddings $\hat{\mathbf{e}}_{t+\tau}$. Zero-shot / prototype scoring uses normalized text embeddings and similarity to action prototypes (implementation: `hoi.py` / `protohoi.py`).
+
+**Semantic attention.** For detection track $k$ with label $\ell_k$, let $r(\ell_k)$ be the mean hazard score over `HazardScore` entries whose subject or object matches $\ell_k$. With threshold $\theta$ and scales $s_{\mathrm{low}} < s_{\mathrm{high}}$,
+
+$$
+a_k =
+\begin{cases}
+s_{\mathrm{high}}, & r(\ell_k) \ge \theta, \\
+s_{\mathrm{low}}, & \text{otherwise.}
+\end{cases}
+$$
+
+Allocations $\{a_k\}$ modulate per-track compute on the next cycle (see `[architecture.md](architecture.md)` for wiring).
+
+**Sequence metrics (evaluation).** With $T$ frames, top observed action $a_t^\star$ at $t$, hazard threshold and lead window $(\theta_h, L)$ as in `[experiments.md](experiments.md)`:
+
+$$
+\mathrm{THC} = \frac{1}{T-1} \sum_{t=2}^{T} \mathbb{1}[a_t^\star = a_{t-1}^\star],
+$$
+
+$$
+\mathrm{HAA} = \frac{1}{|H|} \sum_{h \in H} \mathbb{1}\bigl[\exists\, p \in P : h - L \le p \le h\bigr],
+$$
+
+$$
+\mathrm{RME} = \mathrm{clip}\!\left( \frac{1}{T}\sum_{t=1}^{T} s_t\, c_t,\, 0,\, 1 \right),
+$$
+
+where $H$ is the set of frames with mean hazard $\ge \theta_h$, $P$ the frames with predicted HOI signals, and $(s_t, c_t)$ mean hazard and mean attention allocation at $t$. Operational defaults and acceptance-style discussion remain in `[experiments.md](experiments.md)`.
+
 ---
 
 ## 5. Major components
@@ -149,7 +219,7 @@ The project emphasizes metrics that align with **temporal consistency**, **antic
 - **HAA** — hazard anticipation accuracy  
 - **RME** — risk-weighted memory efficiency  
 
-These appear alongside conventional detection-oriented figures where applicable (e.g., mAP) in ablation reporting. Formal definitions, Phase 3 HOI metrics (e.g., future action accuracy by horizon, embedding cosine, FPS), and reporting templates are in `[experiments.md](experiments.md)`.
+These appear alongside conventional detection-oriented figures where applicable (e.g., mAP) in ablation reporting. Compact formulas also appear in **§4.1**; formal definitions, Phase 3 HOI metrics (e.g., future action accuracy by horizon, embedding cosine, FPS), and reporting templates are in `[experiments.md](experiments.md)`.
 
 ---
 
