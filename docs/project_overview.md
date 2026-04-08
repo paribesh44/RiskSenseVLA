@@ -1,4 +1,4 @@
-# RiskSense-VLA — Research Overview (This research project is in progress.)
+# RiskSense-VLA — Research Overview
 
 ## 1. Introduction
 
